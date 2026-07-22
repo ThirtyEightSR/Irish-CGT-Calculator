@@ -14,8 +14,9 @@ CGT Tool for DEGIRO CSV
 """
 from __future__ import annotations
 
-import importlib
+import importlib.util
 import sys
+import types
 from pathlib import Path
 
 # Ensure the repository root is on sys.path so local packages (e.g. `core`) can be
@@ -54,33 +55,60 @@ from services.pipeline import run_output_pipeline
 from utils.formatting import format_date, format_eur, format_number, format_qty
 
 
-def _import_ui_module(module_name: str):
-    return importlib.import_module(module_name)
+def _load_ui_module(module_name: str, relative_path: str):
+    repo_root = Path(__file__).resolve().parent
+    module_path = repo_root / relative_path
 
-components_module = _import_ui_module("ui.components")
+    if module_name == "ui":
+        package = types.ModuleType(module_name)
+        package.__file__ = str(repo_root / "ui" / "__init__.py")
+        package.__path__ = [str(repo_root / "ui")]
+        package.__package__ = module_name
+        sys.modules[module_name] = package
+        return package
+
+    if module_name not in sys.modules:
+        package = sys.modules.get("ui")
+        if package is None:
+            _load_ui_module("ui", "ui/__init__.py")
+            package = sys.modules["ui"]
+
+        spec = importlib.util.spec_from_file_location(module_name, module_path)
+        if spec is None or spec.loader is None:
+            raise ImportError(f"Could not load {module_name} from {module_path}")
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[module_name] = module
+        spec.loader.exec_module(module)
+        return module
+
+    return sys.modules[module_name]
+
+_load_ui_module("ui", "ui/__init__.py")
+
+components_module = _load_ui_module("ui.components", "ui/components.py")
 render_cgt1_export_expander = components_module.render_cgt1_export_expander
 render_dividend_summary_expander = components_module.render_dividend_summary_expander
 render_dividend_tax_sidebar = components_module.render_dividend_tax_sidebar
 render_form12_export_expander = components_module.render_form12_export_expander
 render_main_sidebar = components_module.render_main_sidebar
 
-annual_summary_module = _import_ui_module("ui.annual_summary")
+annual_summary_module = _load_ui_module("ui.annual_summary", "ui/annual_summary.py")
 render_annual_summary_tabs = annual_summary_module.render_annual_summary_tabs
 
-diagnostics_module = _import_ui_module("ui.diagnostics")
+diagnostics_module = _load_ui_module("ui.diagnostics", "ui/diagnostics.py")
 render_incoming_transfer_diagnostics = diagnostics_module.render_incoming_transfer_diagnostics
 render_manual_missing_diagnostics = diagnostics_module.render_manual_missing_diagnostics
 
-history_module = _import_ui_module("ui.history")
+history_module = _load_ui_module("ui.history", "ui/history.py")
 render_transaction_history = history_module.render_transaction_history
 
-positions_module = _import_ui_module("ui.positions")
+positions_module = _load_ui_module("ui.positions", "ui/positions.py")
 render_open_positions = positions_module.render_open_positions
 
-reconciliation_module = _import_ui_module("ui.reconciliation")
+reconciliation_module = _load_ui_module("ui.reconciliation", "ui/reconciliation.py")
 render_tax_reconciliation_debug = reconciliation_module.render_tax_reconciliation_debug
 
-what_if_module = _import_ui_module("ui.what_if")
+what_if_module = _load_ui_module("ui.what_if", "ui/what_if.py")
 render_what_if = what_if_module.render_what_if
 
 

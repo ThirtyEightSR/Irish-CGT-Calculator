@@ -14,6 +14,13 @@ CGT Tool for DEGIRO CSV
 """
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
+# Ensure the repository root is on sys.path so local packages (e.g. `core`) can be
+# imported when the app runs in hosted environments with a different CWD.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
 import pandas as pd
 import streamlit as st
 

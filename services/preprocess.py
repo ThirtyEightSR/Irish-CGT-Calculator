@@ -6,6 +6,22 @@ from typing import Any, Callable
 import pandas as pd
 
 
+def _sanitize_uploaded_frame(df_raw: pd.DataFrame) -> pd.DataFrame:
+    df_raw = df_raw.copy()
+    df_raw.columns = [str(col) for col in df_raw.columns]
+
+    for col in df_raw.columns:
+        series = df_raw[col]
+        if pd.api.types.is_object_dtype(series) or pd.api.types.is_string_dtype(series):
+            df_raw[col] = series.apply(
+                lambda value: value if isinstance(value, str) or pd.isna(value) else str(value)
+            )
+        elif pd.api.types.is_numeric_dtype(series) or pd.api.types.is_bool_dtype(series):
+            df_raw[col] = series.astype(object)
+
+    return df_raw
+
+
 @dataclass
 class PreprocessResult:
     df_norm: pd.DataFrame
@@ -33,6 +49,8 @@ def prepare_input_dataframe(
             except Exception:
                 f.seek(0)
                 df_raw = pd.read_csv(f, sep=";")
+
+            df_raw = _sanitize_uploaded_frame(df_raw)
             broker = detect_broker_from_headers_fn(df_raw.head(1))
             adapter = broker_adapters.get(broker, broker_adapters["DEGIRO"])
             df_norm_one = adapter(df_raw)

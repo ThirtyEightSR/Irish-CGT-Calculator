@@ -9,6 +9,10 @@ import re
 BrokerAdapter = Callable[[pd.DataFrame], pd.DataFrame]
 
 
+def _safe_stringify_series(series: pd.Series) -> pd.Series:
+    return series.apply(lambda value: value if isinstance(value, str) else "" if pd.isna(value) else str(value))
+
+
 def parse_degiros_csv(df_raw: pd.DataFrame) -> pd.DataFrame:
     # DEGIRO's CSV has a weird structure for dividends:
     # Columns: Date, Time, Value date, Product, ISIN, Description, FX, Change, Unnamed: 8, Balance, Unnamed: 10, Order ID
@@ -17,7 +21,8 @@ def parse_degiros_csv(df_raw: pd.DataFrame) -> pd.DataFrame:
     #   Unnamed: 8 = dividend amount in that currency
     #   Unnamed: 10 = EUR equivalent amount
 
-    is_div_before = df_raw["Description"].astype(str).str.contains("Dividend", case=False, na=False)
+    description_series = _safe_stringify_series(df_raw["Description"])
+    is_div_before = description_series.str.contains("Dividend", case=False, na=False)
 
     if is_div_before.any():
         if "Unnamed: 8" in df_raw.columns:
@@ -44,7 +49,9 @@ def parse_degiros_csv(df_raw: pd.DataFrame) -> pd.DataFrame:
                 df_norm["Currency"] = df_norm["Currency"].astype(object)
             if "FX" in df_norm.columns and pd.api.types.is_numeric_dtype(df_norm["FX"]):
                 df_norm["FX"] = df_norm["FX"].astype(object)
-            df_norm.loc[is_dividend, "Currency"] = dividend_currencies[is_dividend.values].astype(str).str.upper()
+            df_norm.loc[is_dividend, "Currency"] = _safe_stringify_series(
+                dividend_currencies[is_dividend.values]
+            ).str.upper()
             df_norm.loc[is_dividend, "FX"] = df_norm.loc[is_dividend, "Currency"]
 
     return df_norm

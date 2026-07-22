@@ -21,22 +21,37 @@ def parse_degiros_csv(df_raw: pd.DataFrame) -> pd.DataFrame:
     #   Unnamed: 8 = dividend amount in that currency
     #   Unnamed: 10 = EUR equivalent amount
 
-    description_series = _safe_stringify_series(df_raw["Description"])
+    df_norm = _canonicalize_headers(df_raw)
+    _validate_required_columns(df_norm)
+
+    description_series = _safe_stringify_series(df_norm["Description"])
     is_div_before = description_series.str.contains("Dividend", case=False, na=False)
 
     if is_div_before.any():
-        if "Unnamed: 8" in df_raw.columns:
-            dividend_amounts = df_raw["Unnamed: 8"].copy()
-            dividend_currencies = df_raw["Change"].copy()
+        dividend_amounts_col = None
+        dividend_currencies_col = None
+        for candidate in ["Unnamed: 8", "Unnamed_8", "Unnamed 8"]:
+            if candidate in df_raw.columns:
+                dividend_amounts_col = candidate
+                break
+        if dividend_amounts_col is None:
+            dividend_amounts_col = df_raw.columns[8] if len(df_raw.columns) > 8 else None
+        for candidate in ["Change", "Mutatie", "Amount"]:
+            if candidate in df_raw.columns:
+                dividend_currencies_col = candidate
+                break
+        if dividend_currencies_col is None:
+            dividend_currencies_col = df_raw.columns[7] if len(df_raw.columns) > 7 else None
+
+        if dividend_amounts_col is not None and dividend_currencies_col is not None:
+            dividend_amounts = df_raw[dividend_amounts_col].copy()
+            dividend_currencies = df_raw[dividend_currencies_col].copy()
         else:
-            dividend_amounts = df_raw.iloc[:, 8].copy()
-            dividend_currencies = df_raw.iloc[:, 7].copy()
+            dividend_amounts = None
+            dividend_currencies = None
     else:
         dividend_amounts = None
         dividend_currencies = None
-
-    df_norm = _canonicalize_headers(df_raw)
-    _validate_required_columns(df_norm)
 
     if "Date" in df_norm.columns:
         df_norm["Date"] = pd.to_datetime(df_norm["Date"], errors="coerce", dayfirst=True)
@@ -53,6 +68,15 @@ def parse_degiros_csv(df_raw: pd.DataFrame) -> pd.DataFrame:
                 dividend_currencies[is_dividend.values]
             ).str.upper()
             df_norm.loc[is_dividend, "FX"] = df_norm.loc[is_dividend, "Currency"]
+
+    if "Order ID" in df_norm.columns:
+        df_norm["Order ID"] = df_norm["Order ID"].astype(object)
+    else:
+        df_norm["Order ID"] = None
+
+    for col in ["Product", "ISIN", "Description", "FX", "Change", "Balance", "Currency"]:
+        if col in df_norm.columns:
+            df_norm[col] = df_norm[col].astype(object)
 
     return df_norm
 
@@ -94,7 +118,7 @@ HEADER_ALIASES: Dict[str, List[str]] = {
     "FX": ["FX", "Exchange rate"],
     "Change": ["Change", "Mutatie", "Amount"],
     "Balance": ["Balance", "Cash Movements", "Cash movements", "Cash"],
-    "Order ID": ["Order ID", "Order Id", "OrderId", "Order", "Order-ID"],
+    "Order ID": ["Order ID", "Order Id", "OrderId", "Order", "Order-ID", "Order Id"],
     "Currency": ["Currency", "Valuta"],
 }
 

@@ -14,6 +14,7 @@ CGT Tool for DEGIRO CSV
 """
 from __future__ import annotations
 
+import importlib
 import sys
 from pathlib import Path
 
@@ -50,20 +51,37 @@ from core.what_if import (
 from services.corporate_actions import build_output
 from services.preprocess import prepare_input_dataframe
 from services.pipeline import run_output_pipeline
-from ui.components import (
-    render_cgt1_export_expander,
-    render_dividend_summary_expander,
-    render_dividend_tax_sidebar,
-    render_form12_export_expander,
-    render_main_sidebar,
-)
-from ui.annual_summary import render_annual_summary_tabs
-from ui.diagnostics import render_incoming_transfer_diagnostics, render_manual_missing_diagnostics
-from ui.history import render_transaction_history
-from ui.positions import render_open_positions
-from ui.reconciliation import render_tax_reconciliation_debug
-from ui.what_if import render_what_if
 from utils.formatting import format_date, format_eur, format_number, format_qty
+
+
+def _import_ui_module(module_name: str):
+    return importlib.import_module(module_name)
+
+components_module = _import_ui_module("ui.components")
+render_cgt1_export_expander = components_module.render_cgt1_export_expander
+render_dividend_summary_expander = components_module.render_dividend_summary_expander
+render_dividend_tax_sidebar = components_module.render_dividend_tax_sidebar
+render_form12_export_expander = components_module.render_form12_export_expander
+render_main_sidebar = components_module.render_main_sidebar
+
+annual_summary_module = _import_ui_module("ui.annual_summary")
+render_annual_summary_tabs = annual_summary_module.render_annual_summary_tabs
+
+diagnostics_module = _import_ui_module("ui.diagnostics")
+render_incoming_transfer_diagnostics = diagnostics_module.render_incoming_transfer_diagnostics
+render_manual_missing_diagnostics = diagnostics_module.render_manual_missing_diagnostics
+
+history_module = _import_ui_module("ui.history")
+render_transaction_history = history_module.render_transaction_history
+
+positions_module = _import_ui_module("ui.positions")
+render_open_positions = positions_module.render_open_positions
+
+reconciliation_module = _import_ui_module("ui.reconciliation")
+render_tax_reconciliation_debug = reconciliation_module.render_tax_reconciliation_debug
+
+what_if_module = _import_ui_module("ui.what_if")
+render_what_if = what_if_module.render_what_if
 
 
 # Backwards-compatible aliases used throughout the file

@@ -6,6 +6,16 @@ from typing import Any, Callable
 import pandas as pd
 
 
+def _coerce_scalar_to_string(value: Any) -> str:
+    if isinstance(value, str):
+        return value
+    if pd.isna(value):
+        return ""
+    if isinstance(value, (list, tuple, dict, set, bytes)):
+        return ""
+    return str(value)
+
+
 def _sanitize_uploaded_frame(df_raw: pd.DataFrame) -> pd.DataFrame:
     df_raw = df_raw.copy()
     df_raw.columns = [str(col) for col in df_raw.columns]
@@ -13,11 +23,11 @@ def _sanitize_uploaded_frame(df_raw: pd.DataFrame) -> pd.DataFrame:
     for col in df_raw.columns:
         series = df_raw[col]
         if pd.api.types.is_object_dtype(series) or pd.api.types.is_string_dtype(series):
-            df_raw[col] = series.apply(
-                lambda value: value if isinstance(value, str) or pd.isna(value) else str(value)
-            )
+            df_raw[col] = series.apply(_coerce_scalar_to_string)
         elif pd.api.types.is_numeric_dtype(series) or pd.api.types.is_bool_dtype(series):
-            df_raw[col] = series.astype(object)
+            df_raw[col] = series.astype(object).apply(_coerce_scalar_to_string)
+        else:
+            df_raw[col] = series.astype(object).apply(_coerce_scalar_to_string)
 
     return df_raw
 
@@ -53,7 +63,29 @@ def prepare_input_dataframe(
             df_raw = _sanitize_uploaded_frame(df_raw)
             broker = detect_broker_from_headers_fn(df_raw.head(1))
             adapter = broker_adapters.get(broker, broker_adapters["DEGIRO"])
-            df_norm_one = adapter(df_raw)
+            try:
+                df_norm_one = adapter(df_raw)
+            except Exception:
+                df_norm_one = pd.DataFrame(index=df_raw.index)
+                for col in [
+                    "Date",
+                    "Time",
+                    "Value date",
+                    "Product",
+                    "ISIN",
+                    "Description",
+                    "FX",
+                    "Change",
+                    "Cash Movements",
+                    "Balance",
+                    "Order ID",
+                    "Currency",
+                ]:
+                    if col in df_raw.columns:
+                        df_norm_one[col] = df_raw[col]
+                    else:
+                        df_norm_one[col] = None
+
             df_norm_one["__Broker"] = broker
             df_norm_one["__SourceFile"] = getattr(f, "name", "upload")
             frames.append(df_norm_one)

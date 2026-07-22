@@ -57,7 +57,8 @@ def parse_degiros_csv(df_raw: pd.DataFrame) -> pd.DataFrame:
         df_norm["Date"] = pd.to_datetime(df_norm["Date"], errors="coerce", dayfirst=True)
 
     if dividend_amounts is not None:
-        is_dividend = df_norm["Description"].astype(str).str.contains("Dividend", case=False, na=False)
+        description_for_dividend = _safe_stringify_series(df_norm["Description"])
+        is_dividend = description_for_dividend.str.contains("Dividend", case=False, na=False)
         if is_dividend.any():
             df_norm.loc[is_dividend, "Change"] = pd.to_numeric(dividend_amounts[is_dividend.values], errors="coerce")
             if "Currency" in df_norm.columns and pd.api.types.is_numeric_dtype(df_norm["Currency"]):

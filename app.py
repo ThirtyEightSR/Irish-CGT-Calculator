@@ -97,6 +97,7 @@ annual_summary_module = _load_ui_module("ui.annual_summary", "ui/annual_summary.
 render_annual_summary_tabs = annual_summary_module.render_annual_summary_tabs
 
 diagnostics_module = _load_ui_module("ui.diagnostics", "ui/diagnostics.py")
+render_fx_diagnostics = diagnostics_module.render_fx_diagnostics
 render_incoming_transfer_diagnostics = diagnostics_module.render_incoming_transfer_diagnostics
 render_manual_missing_diagnostics = diagnostics_module.render_manual_missing_diagnostics
 
@@ -122,8 +123,8 @@ fmt_date = format_date
 
 # ---------------- Page config ----------------
 st.set_page_config(page_title="CGT Tool", layout="wide")
-st.title("📈 Irish CGT Tool")
-st.caption("Review CGT, ETF exit tax, dividends, and trade history in one place.")
+st.sidebar.markdown("## 📈 Irish CGT Tool")
+st.sidebar.caption("Review CGT, ETF exit tax, dividends, and trade history in one place.")
 render_welcome_banner()
 
 # ---------------- Sidebar: Import & settings ----------------
@@ -190,7 +191,9 @@ try:
     df_norm = pipeline_result.df_norm
     out = pipeline_result.out
     split_audit_df = pipeline_result.split_audit_df
-    for msg in pipeline_result.warnings:
+    # Filter out FX rate missing warnings (shown in diagnostics tab instead)
+    top_level_warnings = [msg for msg in pipeline_result.warnings if "missing FX_Rate" not in msg]
+    for msg in top_level_warnings:
         st.warning(msg)
 
 except Exception as e:
@@ -339,6 +342,38 @@ with section_tabs[0]:
                 annual_preview = pd.concat([annual_preview, pd.DataFrame([{"Year": "Total", **annual_totals}])], ignore_index=True)
                 annual_preview["Year"] = annual_preview["Year"].astype(str)
 
+            current_year = int(max(years_sorted)) if years_sorted else None
+            current_year_buys = 0.0
+            current_year_sells = 0.0
+            current_year_tax = 0.0
+
+            def _sum_numeric_col(df_local: pd.DataFrame, col_name: str) -> float:
+                if col_name not in df_local.columns:
+                    return 0.0
+                series_local = pd.Series(pd.to_numeric(df_local[col_name], errors="coerce"))
+                return float(series_local.fillna(0).sum())
+
+            if current_year is not None and not summary_combined.empty and "Year" in summary_combined.columns:
+                current_year_values = pd.Series(pd.to_numeric(summary_combined["Year"], errors="coerce"))
+                current_year_mask = current_year_values.eq(float(current_year))
+                current_year_row = summary_combined.loc[current_year_mask, :].copy()
+                if not current_year_row.empty:
+                    current_year_buys = _sum_numeric_col(current_year_row, "Buys (EUR)")
+                    current_year_sells = _sum_numeric_col(current_year_row, "Sells (EUR)")
+
+                    if "Tax @ Combined (EUR)" in current_year_row.columns:
+                        current_year_tax = _sum_numeric_col(current_year_row, "Tax @ Combined (EUR)")
+                    elif {
+                        f"Tax @ Shares {int(cgt_rate_shares*100)}% (EUR)",
+                        f"Tax @ ETFs {int(exit_tax_rate_etf*100)}% (EUR)",
+                    }.issubset(current_year_row.columns):
+                        current_year_tax = _sum_numeric_col(
+                            current_year_row, f"Tax @ Shares {int(cgt_rate_shares*100)}% (EUR)"
+                        ) + _sum_numeric_col(current_year_row, f"Tax @ ETFs {int(exit_tax_rate_etf*100)}% (EUR)")
+                    else:
+                        fallback_tax_cols = [c for c in current_year_row.columns if c.startswith("Tax @")]
+                        current_year_tax = float(sum(_sum_numeric_col(current_year_row, c) for c in fallback_tax_cols))
+
             overview_cols = st.columns(4)
             with overview_cols[0]:
                 st.metric("Rows analysed", f"{rows_analyzed:,}")
@@ -360,9 +395,18 @@ with section_tabs[0]:
                     fee_total = float(fee_series.fillna(0).sum())
                 else:
                     fee_total = 0.0
-                st.metric("Total fees", fmt_money_eur(fee_total))
+                st.metric("Fees & tax (EUR)", fmt_money_eur(fee_total))
             with overview_cols_2[3]:
                 st.metric("Tx rows", f"{rows_analyzed:,}")
+
+            overview_cols_3 = st.columns(3)
+            year_suffix = f" ({current_year})" if current_year is not None else ""
+            with overview_cols_3[0]:
+                st.metric(f"Buys{year_suffix}", fmt_money_eur(current_year_buys))
+            with overview_cols_3[1]:
+                st.metric(f"Sells{year_suffix}", fmt_money_eur(current_year_sells))
+            with overview_cols_3[2]:
+                st.metric(f"Tax owed{year_suffix}", fmt_money_eur(current_year_tax))
 
             st.markdown("#### Annual Summary Details")
             st.caption("Detailed annual summaries, dividend breakdowns, and deemed-disposal projections.")
@@ -442,6 +486,7 @@ with section_tabs[3]:
 
 with section_tabs[4]:
     st.caption(section_help["Diagnostics"])
+    render_fx_diagnostics(out=out)
     render_manual_missing_diagnostics(opening_lots_df=opening_lots_df, out=out)
     render_incoming_transfer_diagnostics(out=out, manual_norm=_manual_norm)
     render_tax_reconciliation_debug(
@@ -456,8 +501,8 @@ with section_tabs[4]:
 with section_tabs[5]:
     st.caption(section_help["Exports"])
     if cgt1_df_full is not None:
-        render_cgt1_export_expander(cgt1_df_full)
+        render_cgt1_export_expander(cgt1_df_full, summary_shares=summary_shares)
     else:
         st.info("CGT1 export is unavailable for the current data.")
-    render_form12_export_expander(out, exit_tax_rate_etf, build_form12_export)
+    render_form12_export_expander(out, exit_tax_rate_etf, build_form12_export, summary_etfs=summary_etfs)
     render_dividend_summary_expander(out, tax_bracket, usc_rate, prsi_rate)

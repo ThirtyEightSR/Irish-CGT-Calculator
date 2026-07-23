@@ -37,7 +37,13 @@ def build_fx_diagnostics_frame(out: Optional[pd.DataFrame]) -> pd.DataFrame:
     issues.loc[missing_fx_code & issues.eq("")] = "Missing FXCCY code for non-EUR trade"
 
     # Build diagnostic table with FX rate source info
-    cols_to_include = [c for c in ["Date", "Ticker - Name", "ISIN", "Type", "Currency", "FXCCY", "FX_Rate", "FX_Rate_Source_Date", "Total (EUR)", "Price_EUR", "Description"] if c in df.columns]
+    # Put FX columns early so they're visible in Streamlit's default column ordering
+    cols_to_include = []
+    base_cols = ["Date", "Type", "Currency", "FXCCY", "FX_Rate", "FX_Rate_Source_Date", "Ticker - Name", "ISIN", "Total (EUR)", "Price_EUR", "Description"]
+    for col in base_cols:
+        if col in df.columns:
+            cols_to_include.append(col)
+    
     suspicious = df.loc[trade_mask & issues.ne(""), cols_to_include].copy()
     if suspicious.empty:
         return pd.DataFrame()

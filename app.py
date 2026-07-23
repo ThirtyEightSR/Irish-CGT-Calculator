@@ -374,23 +374,23 @@ with section_tabs[0]:
                     use_container_width=True,
                 )
 
-            with st.expander("Annual Summary details", expanded=False):
-                st.caption("Detailed annual summaries, dividend breakdowns, and deemed-disposal projections.")
-                render_annual_summary_tabs(
-                    summary_shares=summary_shares,
-                    summary_etfs=summary_etfs,
-                    summary_combined=summary_combined,
-                    out=out,
-                    show_bf_used=show_bf_used,
-                    show_ex_used=show_ex_used,
-                    show_carry_fw=show_carry_fw,
-                    show_cashflow=show_cashflow,
-                    show_total_fees=show_total_fees,
-                    fmt_money=fmt_money,
-                    fmt_money_eur=fmt_money_eur,
-                    deemed_plan_and_estimates_fn=_deemed_plan_and_estimates,
-                    deemed_exit_tax_rate=EXIT_TAX_RATE,
-                )
+            st.markdown("#### Annual Summary Details")
+            st.caption("Detailed annual summaries, dividend breakdowns, and deemed-disposal projections.")
+            render_annual_summary_tabs(
+                summary_shares=summary_shares,
+                summary_etfs=summary_etfs,
+                summary_combined=summary_combined,
+                out=out,
+                show_bf_used=show_bf_used,
+                show_ex_used=show_ex_used,
+                show_carry_fw=show_carry_fw,
+                show_cashflow=show_cashflow,
+                show_total_fees=show_total_fees,
+                fmt_money=fmt_money,
+                fmt_money_eur=fmt_money_eur,
+                deemed_plan_and_estimates_fn=_deemed_plan_and_estimates,
+                deemed_exit_tax_rate=EXIT_TAX_RATE,
+            )
 
             snap_cols = st.columns(2)
             with snap_cols[0]:

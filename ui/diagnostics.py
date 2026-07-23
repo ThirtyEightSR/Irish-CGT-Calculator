@@ -2,8 +2,63 @@ from __future__ import annotations
 
 from typing import Optional
 
+import numpy as np
 import pandas as pd
 import streamlit as st
+
+
+def build_fx_diagnostics_frame(out: Optional[pd.DataFrame]) -> pd.DataFrame:
+    if not isinstance(out, pd.DataFrame) or out.empty:
+        return pd.DataFrame()
+
+    df = out.copy()
+    if "Type" not in df.columns:
+        return pd.DataFrame()
+
+    df["Type"] = df["Type"].astype(str).str.strip()
+    trade_mask = df["Type"].isin(["Buy", "Sell"])
+    if not trade_mask.any():
+        return pd.DataFrame()
+
+    currency = df["Currency"].astype(str).str.upper().str.strip() if "Currency" in df.columns else pd.Series("", index=df.index)
+    fx_rate = pd.to_numeric(df["FX_Rate"], errors="coerce") if "FX_Rate" in df.columns else pd.Series(np.nan, index=df.index, dtype="float64")
+    fx_ccy = df["FXCCY"].astype(str).str.upper().str.strip() if "FXCCY" in df.columns else pd.Series("", index=df.index)
+
+    issues = pd.Series("", index=df.index, dtype="object")
+
+    non_eur_mask = trade_mask & ~currency.eq("EUR") & ~fx_ccy.eq("EUR")
+    issues.loc[non_eur_mask & fx_rate.isna()] = "Missing FX_Rate for non-EUR trade"
+    issues.loc[non_eur_mask & fx_rate.notna() & fx_rate.round(6).eq(1.0)] = "Suspicious FX_Rate=1.0 for non-EUR trade"
+
+    eur_mask = trade_mask & (currency.eq("EUR") | fx_ccy.eq("EUR"))
+    issues.loc[eur_mask & fx_rate.notna() & ~fx_rate.round(6).eq(1.0)] = "EUR trade carries non-1.0 FX_Rate"
+
+    missing_fx_code = trade_mask & fx_ccy.eq("") & currency.ne("EUR")
+    issues.loc[missing_fx_code & issues.eq("")] = "Missing FXCCY code for non-EUR trade"
+
+    suspicious = df.loc[trade_mask & issues.ne(""), [c for c in ["Date", "Ticker - Name", "ISIN", "Type", "Currency", "FXCCY", "FX_Rate", "Total (EUR)", "Price_EUR", "Description"] if c in df.columns]].copy()
+    if suspicious.empty:
+        return pd.DataFrame()
+
+    suspicious["Issue"] = issues.loc[suspicious.index].values
+    if "Date" in suspicious.columns:
+        suspicious["Date"] = pd.to_datetime(suspicious["Date"], errors="coerce")
+    return suspicious.sort_values(by=[c for c in ["Date", "ISIN"] if c in suspicious.columns], kind="mergesort")
+
+
+def render_fx_diagnostics(out: Optional[pd.DataFrame]) -> None:
+    st.markdown("### 💱 FX Mapping Checks")
+
+    fx_diag = build_fx_diagnostics_frame(out)
+    if fx_diag.empty:
+        st.success("No obvious FX mapping anomalies found in the current output.")
+        return
+
+    issue_counts = fx_diag["Issue"].value_counts().reset_index()
+    issue_counts.columns = ["Issue", "Rows"]
+    st.warning(f"Detected {len(fx_diag)} row(s) with FX mapping anomalies.")
+    st.dataframe(issue_counts, use_container_width=True, hide_index=True)
+    st.dataframe(fx_diag.head(100), use_container_width=True, hide_index=True)
 
 
 def render_manual_missing_diagnostics(opening_lots_df: Optional[pd.DataFrame], out: Optional[pd.DataFrame]) -> None:

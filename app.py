@@ -364,16 +364,6 @@ with section_tabs[0]:
             with overview_cols_2[3]:
                 st.metric("Tx rows", f"{rows_analyzed:,}")
 
-            st.markdown("#### Annual Summary Snapshot")
-            st.caption("A compact year-by-year view of the combined Shares + ETFs position.")
-            if annual_preview.empty:
-                st.info("No annual summary rows available yet.")
-            else:
-                st.dataframe(
-                    annual_preview.style.format({c: fmt_money_eur for c in annual_preview.columns if c != "Year"}),
-                    use_container_width=True,
-                )
-
             st.markdown("#### Annual Summary Details")
             st.caption("Detailed annual summaries, dividend breakdowns, and deemed-disposal projections.")
             render_annual_summary_tabs(

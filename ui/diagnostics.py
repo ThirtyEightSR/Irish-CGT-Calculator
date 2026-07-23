@@ -36,13 +36,20 @@ def build_fx_diagnostics_frame(out: Optional[pd.DataFrame]) -> pd.DataFrame:
     missing_fx_code = trade_mask & fx_ccy.eq("") & currency.ne("EUR")
     issues.loc[missing_fx_code & issues.eq("")] = "Missing FXCCY code for non-EUR trade"
 
-    suspicious = df.loc[trade_mask & issues.ne(""), [c for c in ["Date", "Ticker - Name", "ISIN", "Type", "Currency", "FXCCY", "FX_Rate", "Total (EUR)", "Price_EUR", "Description"] if c in df.columns]].copy()
+    # Build diagnostic table with FX rate source info
+    cols_to_include = [c for c in ["Date", "Ticker - Name", "ISIN", "Type", "Currency", "FXCCY", "FX_Rate", "FX_Rate_Source_Date", "Total (EUR)", "Price_EUR", "Description"] if c in df.columns]
+    suspicious = df.loc[trade_mask & issues.ne(""), cols_to_include].copy()
     if suspicious.empty:
         return pd.DataFrame()
 
     suspicious["Issue"] = issues.loc[suspicious.index].values
+    
+    # Format dates
     if "Date" in suspicious.columns:
-        suspicious["Date"] = pd.to_datetime(suspicious["Date"], errors="coerce")
+        suspicious["Date"] = pd.to_datetime(suspicious["Date"], errors="coerce").dt.strftime("%Y-%m-%d")
+    if "FX_Rate_Source_Date" in suspicious.columns:
+        suspicious["FX_Rate_Source_Date"] = pd.to_datetime(suspicious["FX_Rate_Source_Date"], errors="coerce").dt.strftime("%Y-%m-%d")
+    
     return suspicious.sort_values(by=[c for c in ["Date", "ISIN"] if c in suspicious.columns], kind="mergesort")
 
 

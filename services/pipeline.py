@@ -31,8 +31,9 @@ def _fill_missing_fx_rates(out: pd.DataFrame, warnings: list[str]) -> pd.DataFra
     if "Date" not in out.columns or "Currency" not in out.columns or "FXCCY" not in out.columns or "FX_Rate" not in out.columns:
         return out
     
-    # Prepare date index for searching
+    # Initialize FX_Rate_Source_Date column (defaults to transaction date)
     out["Date_dt"] = pd.to_datetime(out["Date"], errors="coerce")
+    out["FX_Rate_Source_Date"] = out["Date_dt"]
     
     currency = out["Currency"].astype(str).str.upper().str.strip()
     fx_ccy = out["FXCCY"].astype(str).str.upper().str.strip()
@@ -41,15 +42,16 @@ def _fill_missing_fx_rates(out: pd.DataFrame, warnings: list[str]) -> pd.DataFra
     # Only non-EUR trades need FX rate
     non_eur_mask = trade_mask & ~currency.eq("EUR") & ~fx_ccy.eq("EUR")
     if not non_eur_mask.any():
-        return out.drop(columns=["Date_dt"], errors="ignore")
+        out = out.drop(columns=["Date_dt"], errors="ignore")
+        return out
     
     missing_fx_mask = non_eur_mask & fx_rate.isna()
     if not missing_fx_mask.any():
-        return out.drop(columns=["Date_dt"], errors="ignore")
+        out = out.drop(columns=["Date_dt"], errors="ignore")
+        return out
     
     # Build lookup of valid (Currency, FXCCY) -> [(Date, Rate)] sorted by date
     valid_mask = non_eur_mask & fx_rate.notna()
-    valid_rows = out.loc[valid_mask].copy()
     
     filled_count = 0
     for idx in out.index[missing_fx_mask]:
@@ -64,10 +66,12 @@ def _fill_missing_fx_rates(out: pd.DataFrame, warnings: list[str]) -> pd.DataFra
         
         pair_rows = out.loc[pair_mask].copy()
         pair_rows["Date_Diff"] = (pair_rows["Date_dt"] - row_date).abs()
-        nearest = pair_rows.loc[pair_rows["Date_Diff"].idxmin()]
+        nearest_idx = pair_rows["Date_Diff"].idxmin()
+        nearest = pair_rows.loc[nearest_idx]
         
         if nearest["FX_Rate"] == nearest["FX_Rate"]:  # not NaN
             out.loc[idx, "FX_Rate"] = nearest["FX_Rate"]
+            out.loc[idx, "FX_Rate_Source_Date"] = nearest["Date_dt"]
             filled_count += 1
     
     if filled_count > 0:

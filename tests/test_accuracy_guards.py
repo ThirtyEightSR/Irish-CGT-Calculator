@@ -156,6 +156,8 @@ def test_pipeline_fills_missing_fx_rate_from_nearest_date() -> None:
 
     # Should fill missing FX_Rate with nearest-date rate (1.15 is closer than 1.18)
     assert float(result.out.loc[1, "FX_Rate"]) == 1.15
+    # Should track that FX_Rate was sourced from 2025-01-01
+    assert pd.to_datetime(result.out.loc[1, "FX_Rate_Source_Date"]).date() == pd.Timestamp("2025-01-01").date()
     assert any("Filled" in msg and "FX_Rate" in msg for msg in result.warnings)
 
 

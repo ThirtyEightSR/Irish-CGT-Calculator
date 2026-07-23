@@ -70,13 +70,13 @@ def render_annual_summary_tabs(
 
         st.dataframe(styler, use_container_width=True)
 
-    tabs = st.tabs(["📈 Shares (CGT)", "🧺 ETFs (Exit Tax)", "➕ Combined (Shares+ETFs)", "💸 Dividends", "⏳ ETFs (Deemed Disposal)"])
+    tabs = st.tabs(["➕ Combined (Shares+ETFs)", "📈 Shares (CGT)", "🧺 ETFs (Exit Tax)", "💸 Dividends", "⏳ ETFs (Deemed Disposal)"])
     with tabs[0]:
-        style_and_show_summary(summary_shares)
-    with tabs[1]:
-        style_and_show_summary(summary_etfs)
-    with tabs[2]:
         style_and_show_summary(summary_combined)
+    with tabs[1]:
+        style_and_show_summary(summary_shares)
+    with tabs[2]:
+        style_and_show_summary(summary_etfs)
     with tabs[3]:
         st.subheader("Dividend Summary")
         divs = out[out["Type"].eq("Dividend")].copy()

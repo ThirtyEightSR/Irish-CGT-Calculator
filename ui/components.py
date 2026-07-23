@@ -34,13 +34,29 @@ class DividendTaxState:
     prsi_rate: float
 
 
+def render_welcome_banner() -> None:
+    st.markdown("## 🧭 Your CGT workspace")
+    st.caption("Upload your trades, review the summary, and explore the details without losing any of the underlying analysis.")
+
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.markdown("1. **Import your data**")
+        st.caption("Add broker CSVs and optional missing-lot files.")
+    with col2:
+        st.markdown("2. **Review the overview**")
+        st.caption("Check the headline figures before diving into the tables.")
+    with col3:
+        st.markdown("3. **Explore the details**")
+        st.caption("Use positions, history, and what-if analysis for deeper review.")
+
+
 def render_main_sidebar() -> SidebarState:
     with st.sidebar:
-        st.markdown("### 📤 Upload Transactions")
+        st.markdown("### 1️⃣ Import your data")
+        st.caption("Upload one or more broker CSVs to get started.")
+        uploads = st.file_uploader("Broker CSV file(s)", type=["csv"], accept_multiple_files=True, label_visibility="collapsed")
 
-        uploads = st.file_uploader("CSV file(s)", type=["csv"], accept_multiple_files=True, label_visibility="collapsed")
-
-        with st.expander("📥 Upload Missing Transactions", expanded=True):
+        with st.expander("2️⃣ Add missing lots", expanded=True):
             st.caption(
                 "Upload a rich transaction CSV with `Date`, `Type`, `ISIN`, `Quantity`, "
                 "and `Price_EUR`/`Unit_EUR` or `Total (EUR)`. `Type` supports Buy and Sell."
@@ -65,14 +81,14 @@ def render_main_sidebar() -> SidebarState:
                     else:
                         st.error("Missing transactions CSV must include `Price_EUR`, `Unit_EUR`, `Total (EUR)`, or `Total_EUR`.")
 
-        with st.expander("🧾 Summary columns", expanded=False):
+        with st.expander("3️⃣ Choose summary columns", expanded=False):
             show_bf_used = st.checkbox("B/F Loss Used (EUR)", value=False)
             show_ex_used = st.checkbox("Exemption Used (EUR)", value=False)
             show_carry_fw = st.checkbox("Carry Forward (EUR)", value=False)
             show_cashflow = st.checkbox("Net Cashflow (EUR)", value=False)
             show_total_fees = st.checkbox("Total Fees (EUR)", value=False)
 
-        with st.expander("💶 CGT settings", expanded=False):
+        with st.expander("4️⃣ Adjust tax settings", expanded=False):
             use_exemption = st.checkbox("Apply annual CGT exemption (Shares only)", value=True)
             exemption_val = st.number_input(
                 "Exemption amount (EUR)", min_value=0.0, value=DEFAULT_CGT_EXEMPTION_EUR, step=10.0
@@ -84,7 +100,7 @@ def render_main_sidebar() -> SidebarState:
                 "ETFs Exit Tax rate", min_value=0.0, max_value=1.0, value=DEFAULT_EXIT_TAX_RATE_ETF, step=0.01
             )
 
-        with st.expander("✏️ Add Manual Transactions", expanded=False):
+        with st.expander("5️⃣ Add manual transactions", expanded=False):
             st.caption(
                 "Add individual buy/sell transactions here. They will be merged with uploaded files "
                 "and included in all calculations (Annual Summary, CGT1 export, etc.)."

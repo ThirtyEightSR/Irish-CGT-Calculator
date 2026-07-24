@@ -547,7 +547,12 @@ def render_cgt1_export_expander(cgt1_df_full: pd.DataFrame, summary_shares: pd.D
 
         _disp = pd.to_datetime(cgt1_df_full["Date Disposed"], errors="coerce")
         years = sorted({d.year for d in _disp.dropna()}, reverse=True)
-        year_choice = st.selectbox("Filter by tax year", options=( ["All years"] + years), index=0)
+        year_choice = st.selectbox(
+            "Filter by tax year",
+            options=( ["All years"] + years),
+            index=0,
+            key="cgt1_export_year_filter",
+        )
 
         if year_choice == "All years":
             cgt1_df = cgt1_df_full.copy()
@@ -639,7 +644,12 @@ def render_form12_export_expander(
 
         d = pd.to_datetime(f12_full["Date"], errors="coerce")
         years = sorted({dt.year for dt in d.dropna()}, reverse=True)
-        year_choice = st.selectbox("Filter by tax year", options=( ["All years"] + years), index=0)
+        year_choice = st.selectbox(
+            "Filter by tax year",
+            options=( ["All years"] + years),
+            index=0,
+            key="form12_export_year_filter",
+        )
 
         if year_choice == "All years":
             f12_df = f12_full.copy()

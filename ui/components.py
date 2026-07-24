@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Callable
+from typing import Any, Callable, Sequence
 
 import numpy as np
 import pandas as pd
@@ -25,6 +25,7 @@ class SidebarState:
     exemption_val: float
     cgt_rate_shares: float
     exit_tax_rate_etf: float
+    compact_mode: bool
 
 
 @dataclass
@@ -32,6 +33,255 @@ class DividendTaxState:
     tax_bracket: float
     usc_rate: float
     prsi_rate: float
+
+
+def inject_global_styles() -> None:
+    st.markdown(
+        """
+        <style>
+        :root {
+            --cgt-bg: #f5f7fb;
+            --cgt-card: #ffffff;
+            --cgt-border: #d9e0ea;
+            --cgt-text: #1f2937;
+            --cgt-muted: #5c6b80;
+            --cgt-pos: #0f7b45;
+            --cgt-neg: #a61b1b;
+            --cgt-accent: #0c5da5;
+        }
+
+        .stApp {
+            background: radial-gradient(circle at 5% 0%, #f2f6fd 0%, #f7f9fc 38%, #fbfcfe 100%);
+        }
+
+        .cgt-section-intro {
+            background: linear-gradient(135deg, #f8fbff 0%, #eef4fb 100%);
+            border: 1px solid var(--cgt-border);
+            border-radius: 14px;
+            padding: 0.65rem 0.9rem;
+            margin: 0.25rem 0 0.8rem 0;
+        }
+
+        .cgt-section-intro p {
+            color: var(--cgt-muted);
+            margin: 0;
+            font-size: 0.92rem;
+            line-height: 1.35;
+        }
+
+        .cgt-card {
+            background: var(--cgt-card);
+            border: 1px solid var(--cgt-border);
+            border-radius: 14px;
+            padding: 0.75rem 0.8rem;
+            min-height: 90px;
+            margin-bottom: 0.55rem;
+            box-shadow: 0 1px 0 rgba(10, 30, 60, 0.03);
+        }
+
+        .cgt-card-label {
+            color: var(--cgt-muted);
+            font-size: 0.78rem;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            margin-bottom: 0.28rem;
+            font-weight: 600;
+        }
+
+        .cgt-card-value {
+            color: var(--cgt-text);
+            font-size: 1.2rem;
+            font-weight: 700;
+            line-height: 1.2;
+        }
+
+        .cgt-card-value.pos {
+            color: var(--cgt-pos);
+        }
+
+        .cgt-card-value.neg {
+            color: var(--cgt-neg);
+        }
+
+        .cgt-card-note {
+            color: var(--cgt-muted);
+            font-size: 0.76rem;
+            margin-top: 0.35rem;
+        }
+
+        .cgt-chip-wrap {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.38rem;
+            margin: 0.15rem 0 0.45rem 0;
+        }
+
+        .cgt-chip {
+            display: inline-block;
+            border: 1px solid #c9d7e8;
+            border-radius: 999px;
+            padding: 0.16rem 0.54rem;
+            font-size: 0.78rem;
+            color: #1d4d7b;
+            background: #f4f8ff;
+            font-weight: 500;
+        }
+
+        @media (max-width: 900px) {
+            .cgt-section-intro {
+                padding: 0.55rem 0.7rem;
+                border-radius: 12px;
+                margin-bottom: 0.65rem;
+            }
+
+            .cgt-section-intro p {
+                font-size: 0.86rem;
+            }
+
+            .cgt-card {
+                min-height: auto;
+                padding: 0.62rem 0.65rem;
+                border-radius: 12px;
+            }
+
+            .cgt-card-label {
+                font-size: 0.72rem;
+            }
+
+            .cgt-card-value {
+                font-size: 1.02rem;
+            }
+
+            .cgt-card-note {
+                font-size: 0.72rem;
+            }
+
+            .cgt-chip-wrap {
+                gap: 0.25rem;
+                margin-bottom: 0.35rem;
+            }
+
+            .cgt-chip {
+                font-size: 0.69rem;
+                padding: 0.14rem 0.45rem;
+            }
+
+            .stTabs [data-baseweb="tab-list"] {
+                flex-wrap: wrap;
+                gap: 0.28rem;
+            }
+
+            .stTabs [data-baseweb="tab"] {
+                height: auto;
+                min-height: 0;
+                padding: 0.3rem 0.55rem;
+            }
+
+            .stTabs [data-baseweb="tab"] p {
+                font-size: 0.8rem;
+            }
+
+            div[data-testid="stHorizontalBlock"] {
+                gap: 0.5rem;
+            }
+
+            div[data-testid="stSidebar"] div[data-testid="stHorizontalBlock"] {
+                gap: 0.35rem;
+            }
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def inject_density_mode_styles(compact_mode: bool) -> None:
+    if not compact_mode:
+        return
+
+    st.markdown(
+        """
+        <style>
+        div[data-testid="stDataFrame"] table {
+            font-size: 0.84rem;
+        }
+
+        div[data-testid="stDataFrame"] th,
+        div[data-testid="stDataFrame"] td {
+            padding-top: 0.2rem !important;
+            padding-bottom: 0.2rem !important;
+        }
+
+        .cgt-card {
+            min-height: auto;
+            padding: 0.58rem 0.62rem;
+        }
+
+        .cgt-card-label {
+            font-size: 0.72rem;
+        }
+
+        .cgt-card-value {
+            font-size: 1.02rem;
+        }
+
+        .cgt-card-note {
+            font-size: 0.7rem;
+        }
+
+        .cgt-chip {
+            font-size: 0.7rem;
+            padding: 0.12rem 0.4rem;
+        }
+
+        div[data-testid="stHorizontalBlock"] {
+            gap: 0.4rem;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_section_intro(text: str) -> None:
+    st.markdown(f'<div class="cgt-section-intro"><p>{text}</p></div>', unsafe_allow_html=True)
+
+
+def render_stat_cards(cards: Sequence[dict[str, str]], columns: int = 4) -> None:
+    if not cards:
+        return
+
+    cols = st.columns(columns)
+    for idx, card in enumerate(cards):
+        with cols[idx % columns]:
+            label = str(card.get("label", "")).strip()
+            value = str(card.get("value", "")).strip()
+            note = str(card.get("note", "")).strip()
+            tone = str(card.get("tone", "neutral")).strip().lower()
+            tone_cls = ""
+            if tone == "positive":
+                tone_cls = " pos"
+            elif tone == "negative":
+                tone_cls = " neg"
+            note_html = f'<div class="cgt-card-note">{note}</div>' if note else ""
+            st.markdown(
+                (
+                    '<div class="cgt-card">'
+                    f'<div class="cgt-card-label">{label}</div>'
+                    f'<div class="cgt-card-value{tone_cls}">{value}</div>'
+                    f"{note_html}"
+                    "</div>"
+                ),
+                unsafe_allow_html=True,
+            )
+
+
+def render_filter_chips(chips: Sequence[str]) -> None:
+    chip_list = [c for c in chips if str(c).strip()]
+    if not chip_list:
+        return
+    chips_html = "".join(f'<span class="cgt-chip">{str(chip)}</span>' for chip in chip_list)
+    st.markdown(f'<div class="cgt-chip-wrap">{chips_html}</div>', unsafe_allow_html=True)
 
 
 def render_welcome_banner() -> None:
@@ -87,6 +337,7 @@ def render_main_sidebar() -> SidebarState:
             show_carry_fw = st.checkbox("Carry Forward (EUR)", value=False)
             show_cashflow = st.checkbox("Net Cashflow (EUR)", value=False)
             show_total_fees = st.checkbox("Total Fees (EUR)", value=False)
+            compact_mode = st.checkbox("Compact table density", value=False)
 
         with st.expander("4️⃣ Adjust tax settings", expanded=False):
             use_exemption = st.checkbox("Apply annual CGT exemption (Shares only)", value=True)
@@ -178,6 +429,7 @@ def render_main_sidebar() -> SidebarState:
         exemption_val=float(exemption_val),
         cgt_rate_shares=float(cgt_rate_shares),
         exit_tax_rate_etf=float(exit_tax_rate_etf),
+        compact_mode=compact_mode,
     )
 
 
@@ -288,6 +540,7 @@ def render_dividend_tax_sidebar(out: pd.DataFrame | None) -> DividendTaxState:
 
 def render_cgt1_export_expander(cgt1_df_full: pd.DataFrame, summary_shares: pd.DataFrame | None = None) -> None:
     with st.expander("📄 CGT1 export", expanded=False):
+        render_filter_chips(["Disposals only", "CGT1-ready columns", "CSV download"])
         if cgt1_df_full.empty:
             st.info("No disposals to export.")
             return
@@ -323,6 +576,21 @@ def render_cgt1_export_expander(cgt1_df_full: pd.DataFrame, summary_shares: pd.D
 
         cgt1_df = cgt1_df.sort_values(by=["CGT Period", "Date Disposed", "Asset Type", "Ticker - Name"], kind="stable")
 
+        total_disposals = int(len(cgt1_df))
+        total_gain = float(pd.to_numeric(cgt1_df["Gain/Loss (EUR)"], errors="coerce").fillna(0).sum())
+        render_stat_cards(
+            [
+                {"label": "Rows in export", "value": f"{total_disposals:,}"},
+                {
+                    "label": "Total gain/loss",
+                    "value": f"€{total_gain:,.2f}",
+                    "tone": "positive" if total_gain > 0 else ("negative" if total_gain < 0 else "neutral"),
+                },
+                {"label": "Year filter", "value": str(year_choice)},
+            ],
+            columns=3,
+        )
+
         totals = {
             "CGT Period": "",
             "Date Acquired": "Totals",
@@ -340,7 +608,12 @@ def render_cgt1_export_expander(cgt1_df_full: pd.DataFrame, summary_shares: pd.D
         }
         cgt1_preview = pd.concat([cgt1_df, pd.DataFrame([totals])], ignore_index=True)
 
-        st.dataframe(cgt1_preview, use_container_width=True)
+        def _highlight_total_row(row: pd.Series) -> list[str]:
+            if str(row.get("Date Acquired", "")).strip() == "Totals":
+                return ["background-color: #edf3fb; font-weight: 700;"] * len(row)
+            return [""] * len(row)
+
+        st.dataframe(cgt1_preview.style.apply(_highlight_total_row, axis=1), use_container_width=True)
         st.download_button(
             label=f"⬇️ Download CGT1 ({y_token})",
             data=cgt1_df.to_csv(index=False).encode("utf-8"),
@@ -357,6 +630,7 @@ def render_form12_export_expander(
     summary_etfs: pd.DataFrame | None = None,
 ) -> None:
     with st.expander("📄 Form 12 export (ETF Exit Tax)", expanded=False):
+        render_filter_chips(["ETF events", "Exit tax view", "CSV download"])
         f12_full = build_form12_export_fn(out, exit_tax_rate=exit_tax_rate_etf)
 
         if f12_full.empty:
@@ -399,6 +673,17 @@ def render_form12_export_expander(
         tax_col = [c for c in f12_df.columns if c.startswith("Tax @ ") and c.endswith("% (EUR)")]
         tax_col = tax_col[0] if tax_col else None
 
+        total_rows = int(len(f12_df))
+        total_tax_due = float(pd.to_numeric(f12_df.get(tax_col or "", 0), errors="coerce").fillna(0).sum()) if tax_col else 0.0
+        render_stat_cards(
+            [
+                {"label": "Rows in export", "value": f"{total_rows:,}"},
+                {"label": "Total tax", "value": f"€{total_tax_due:,.2f}"},
+                {"label": "Year filter", "value": str(year_choice)},
+            ],
+            columns=3,
+        )
+
         totals = {
             "Tax Year": "",
             "Date": "",
@@ -418,7 +703,12 @@ def render_form12_export_expander(
         }
         preview = pd.concat([f12_df, pd.DataFrame([totals])], ignore_index=True)
 
-        st.dataframe(preview, use_container_width=True)
+        def _highlight_total_row(row: pd.Series) -> list[str]:
+            if str(row.get("Chargeable Event", "")).strip() == "Totals":
+                return ["background-color: #edf3fb; font-weight: 700;"] * len(row)
+            return [""] * len(row)
+
+        st.dataframe(preview.style.apply(_highlight_total_row, axis=1), use_container_width=True)
         st.download_button(
             label=f"⬇️ Download Form 12 (ETF Exit Tax) — {y_token}",
             data=f12_df.to_csv(index=False).encode("utf-8"),
@@ -430,6 +720,7 @@ def render_form12_export_expander(
 
 def render_dividend_summary_expander(out: pd.DataFrame, tax_bracket: float, usc_rate: float, prsi_rate: float) -> None:
     with st.expander("💵 Dividend Summary & Tax Calculator", expanded=False):
+        render_filter_chips(["Dividend roll-up", "Manual FX aware", "Estimated Irish tax"])
         divs = out[out["Type"] == "Dividend"].copy()
 
         if divs.empty:
@@ -472,6 +763,17 @@ def render_dividend_summary_expander(out: pd.DataFrame, tax_bracket: float, usc_
             Tax_Due_Ireland=("Tax_Due_Ireland", "sum"),
         ).reset_index().sort_values(by=["Year", "Currency"], ascending=[False, True])
 
+        total_div_eur = float(pd.to_numeric(summary["Gross_EUR"], errors="coerce").fillna(0).sum()) if not summary.empty else 0.0
+        total_tax = float(summary["Tax_Due_Ireland"].sum())
+        render_stat_cards(
+            [
+                {"label": "Year-currency rows", "value": f"{len(summary):,}"},
+                {"label": "Gross dividends (EUR)", "value": f"€{total_div_eur:,.2f}"},
+                {"label": "Estimated tax due", "value": f"€{total_tax:,.2f}"},
+            ],
+            columns=3,
+        )
+
         st.dataframe(
             summary.style.format(
                 {
@@ -488,5 +790,4 @@ def render_dividend_summary_expander(out: pd.DataFrame, tax_bracket: float, usc_
             use_container_width=True,
         )
 
-        total_tax = float(summary["Tax_Due_Ireland"].sum())
         st.success(f"👉 Total Irish dividend tax due: **€{total_tax:,.2f}**")

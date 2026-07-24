@@ -5,6 +5,8 @@ from typing import Callable
 import pandas as pd
 import streamlit as st
 
+from ui.components import render_filter_chips, render_stat_cards
+
 
 def _as_year_int(series: pd.Series) -> pd.Series:
     return pd.to_numeric(series, errors="coerce").astype("Int64")
@@ -85,6 +87,7 @@ def render_tax_reconciliation_debug(
     fmt_money_eur: Callable[[object], str],
 ) -> None:
     with st.expander("🧮 Tax Reconciliation (Debug)", expanded=False):
+        render_filter_chips(["Reported vs recomputed tax", "Tolerance: EUR0.01"])
         rec = build_tax_reconciliation_frame(
             summary_shares=summary_shares,
             summary_etfs=summary_etfs,
@@ -98,6 +101,22 @@ def render_tax_reconciliation_debug(
 
         max_abs_delta = float(pd.to_numeric(rec["Delta (Reported - Recomputed) (EUR)"], errors="coerce").abs().fillna(0.0).max())
         delta_rows = int((pd.to_numeric(rec["Delta (Reported - Recomputed) (EUR)"], errors="coerce").abs().fillna(0.0) > 0.01).sum())
+        render_stat_cards(
+            [
+                {"label": "Years checked", "value": f"{len(rec):,}"},
+                {
+                    "label": "Mismatched years",
+                    "value": f"{delta_rows:,}",
+                    "tone": "negative" if delta_rows else "positive",
+                },
+                {
+                    "label": "Max absolute delta",
+                    "value": fmt_money_eur(max_abs_delta),
+                    "tone": "negative" if max_abs_delta > 0.01 else "positive",
+                },
+            ],
+            columns=3,
+        )
         if delta_rows:
             st.warning(f"Reconciliation mismatch in {delta_rows} year(s); max absolute delta is €{max_abs_delta:,.2f}.")
         else:

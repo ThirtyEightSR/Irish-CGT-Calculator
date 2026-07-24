@@ -90,7 +90,12 @@ render_cgt1_export_expander = components_module.render_cgt1_export_expander
 render_dividend_summary_expander = components_module.render_dividend_summary_expander
 render_dividend_tax_sidebar = components_module.render_dividend_tax_sidebar
 render_form12_export_expander = components_module.render_form12_export_expander
+inject_density_mode_styles = components_module.inject_density_mode_styles
+inject_global_styles = components_module.inject_global_styles
 render_main_sidebar = components_module.render_main_sidebar
+render_filter_chips = components_module.render_filter_chips
+render_section_intro = components_module.render_section_intro
+render_stat_cards = components_module.render_stat_cards
 render_welcome_banner = components_module.render_welcome_banner
 
 annual_summary_module = _load_ui_module("ui.annual_summary", "ui/annual_summary.py")
@@ -123,6 +128,7 @@ fmt_date = format_date
 
 # ---------------- Page config ----------------
 st.set_page_config(page_title="CGT Tool", layout="wide")
+inject_global_styles()
 st.sidebar.markdown("## 📈 Irish CGT Tool")
 st.sidebar.caption("Review CGT, ETF exit tax, dividends, and trade history in one place.")
 render_welcome_banner()
@@ -140,6 +146,9 @@ use_exemption = sidebar_state.use_exemption
 exemption_val = sidebar_state.exemption_val
 cgt_rate_shares = sidebar_state.cgt_rate_shares
 exit_tax_rate_etf = sidebar_state.exit_tax_rate_etf
+compact_mode = sidebar_state.compact_mode
+
+inject_density_mode_styles(compact_mode)
 
 # Initialize FX-rate state once (used by dividend calculator)
 if "fx_rates_manual" not in st.session_state:
@@ -262,12 +271,12 @@ transaction_mix = pd.DataFrame(columns=["Type", "Rows"])
 top_holdings = pd.DataFrame(columns=["Holding", "ISIN", "Units", "Cost (EUR)"])
 
 with section_tabs[0]:
-    st.caption(section_help["Overview"])
+    render_section_intro(section_help["Overview"])
     if isinstance(out, pd.DataFrame) and not out.empty:
         try:
             rows_analyzed = int(len(out))
             if "ISIN" in out.columns:
-                isin_series = pd.Series(out["ISIN"].astype(str).str.strip().replace({"nan": "", "None": ""}))
+                isin_series = out["ISIN"].astype("string").fillna("").str.strip().replace({"nan": "", "None": ""})
                 unique_isins = int(len({str(value).strip() for value in isin_series.tolist() if str(value).strip()}))
             else:
                 unique_isins = 0
@@ -292,7 +301,7 @@ with section_tabs[0]:
                     open_positions += 1
 
             transaction_mix = (
-                out["Type"].astype(str).str.strip().replace({"nan": "Unknown", "None": "Unknown"}).replace("", "Unknown").value_counts().head(5).reset_index()
+                out["Type"].astype("string").fillna("").str.strip().replace({"nan": "Unknown", "None": "Unknown"}).replace("", "Unknown").value_counts().head(5).reset_index()
                 if "Type" in out.columns
                 else pd.DataFrame(columns=["Type", "Rows"])
             )
@@ -380,39 +389,42 @@ with section_tabs[0]:
                         fallback_tax_cols = [c for c in current_year_row.columns if c.startswith("Tax @")]
                         current_year_tax = float(sum(_sum_numeric_col(current_year_row, c) for c in fallback_tax_cols))
 
-            overview_cols = st.columns(4)
-            with overview_cols[0]:
-                st.metric("Rows analysed", f"{rows_analyzed:,}")
-            with overview_cols[1]:
-                st.metric("Unique ISINs", f"{unique_isins:,}")
-            with overview_cols[2]:
-                st.metric("Dividend gross", fmt_money_eur(dividend_gross))
-            with overview_cols[3]:
-                st.metric("Open positions", f"{open_positions}")
+            if "Fee" in out.columns:
+                fee_series = pd.Series(pd.to_numeric(out["Fee"], errors="coerce"))
+                fee_total = float(fee_series.fillna(0).sum())
+            else:
+                fee_total = 0.0
 
-            overview_cols_2 = st.columns(4)
-            with overview_cols_2[0]:
-                st.metric("Years covered", f"{years_covered}")
-            with overview_cols_2[1]:
-                st.metric("Realised P/L", fmt_money_eur(realised_total))
-            with overview_cols_2[2]:
-                if "Fee" in out.columns:
-                    fee_series = pd.Series(pd.to_numeric(out["Fee"], errors="coerce"))
-                    fee_total = float(fee_series.fillna(0).sum())
-                else:
-                    fee_total = 0.0
-                st.metric("Fees & tax (EUR)", fmt_money_eur(fee_total))
-            with overview_cols_2[3]:
-                st.metric("Tx rows", f"{rows_analyzed:,}")
+            tone_realised = "neutral"
+            if realised_total > 0:
+                tone_realised = "positive"
+            elif realised_total < 0:
+                tone_realised = "negative"
 
-            overview_cols_3 = st.columns(3)
+            render_stat_cards(
+                [
+                    {"label": "Rows analysed", "value": f"{rows_analyzed:,}"},
+                    {"label": "Unique ISINs", "value": f"{unique_isins:,}"},
+                    {"label": "Dividend gross", "value": fmt_money_eur(dividend_gross)},
+                    {"label": "Open positions", "value": f"{open_positions}"},
+                    {"label": "Years covered", "value": f"{years_covered}"},
+                    {"label": "Realised P/L", "value": fmt_money_eur(realised_total), "tone": tone_realised},
+                    {"label": "Fees & tax", "value": fmt_money_eur(fee_total)},
+                    {"label": "Tx rows", "value": f"{rows_analyzed:,}"},
+                ],
+                columns=4,
+            )
+
             year_suffix = f" ({current_year})" if current_year is not None else ""
-            with overview_cols_3[0]:
-                st.metric(f"Buys{year_suffix}", fmt_money_eur(current_year_buys))
-            with overview_cols_3[1]:
-                st.metric(f"Sells{year_suffix}", fmt_money_eur(current_year_sells))
-            with overview_cols_3[2]:
-                st.metric(f"Tax owed{year_suffix}", fmt_money_eur(current_year_tax))
+            render_filter_chips([f"Current tax year{year_suffix}" if current_year is not None else "Current tax year"])
+            render_stat_cards(
+                [
+                    {"label": f"Buys{year_suffix}", "value": fmt_money_eur(current_year_buys)},
+                    {"label": f"Sells{year_suffix}", "value": fmt_money_eur(current_year_sells)},
+                    {"label": f"Tax owed{year_suffix}", "value": fmt_money_eur(current_year_tax)},
+                ],
+                columns=3,
+            )
 
             st.markdown("#### Annual Summary Details")
             st.caption("Detailed annual summaries, dividend breakdowns, and deemed-disposal projections.")
@@ -438,7 +450,7 @@ with section_tabs[0]:
         st.info("Upload and process data to see the overview summary.")
 
 with section_tabs[1]:
-    st.caption(section_help["Transactions"])
+    render_section_intro(section_help["Transactions"])
     render_transaction_history(
         out=out,
         years_sorted=years_sorted,
@@ -468,11 +480,11 @@ with section_tabs[1]:
             )
 
 with section_tabs[2]:
-    st.caption(section_help["Open Positions"])
+    render_section_intro(section_help["Open Positions"])
     render_open_positions(out=out, replay_fifo_lots_all_fn=replay_fifo_lots_all)
 
 with section_tabs[3]:
-    st.caption(section_help["What-if"])
+    render_section_intro(section_help["What-if"])
     render_what_if(
         out=out,
         cgt_rate_shares=cgt_rate_shares,
@@ -492,7 +504,7 @@ with section_tabs[3]:
     )
 
 with section_tabs[4]:
-    st.caption(section_help["Diagnostics"])
+    render_section_intro(section_help["Diagnostics"])
     render_fx_diagnostics(out=out)
     render_manual_missing_diagnostics(opening_lots_df=opening_lots_df, out=out)
     render_incoming_transfer_diagnostics(out=out, manual_norm=_manual_norm)
@@ -506,7 +518,7 @@ with section_tabs[4]:
     )
 
 with section_tabs[5]:
-    st.caption(section_help["Exports"])
+    render_section_intro(section_help["Exports"])
     if cgt1_df_full is not None:
         render_cgt1_export_expander(cgt1_df_full, summary_shares=summary_shares)
     else:

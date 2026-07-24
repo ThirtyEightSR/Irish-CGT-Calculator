@@ -6,6 +6,8 @@ from typing import Any, Callable
 import pandas as pd
 import streamlit as st
 
+from ui.components import render_filter_chips
+
 
 def render_annual_summary_tabs(
     summary_shares: pd.DataFrame,
@@ -56,6 +58,17 @@ def render_annual_summary_tabs(
         money_cols = [c for c in df_v.columns if c != "Year"]
         styler = df_v.style.format({c: fmt_money_eur for c in money_cols})
 
+        def _highlight_total_row(row: pd.Series) -> list[str]:
+            if str(row.get("Year", "")).strip().lower() == "total":
+                return ["background-color: #edf3fb; font-weight: 700;"] * len(row)
+            return [""] * len(row)
+
+        def _zebra_rows(row: pd.Series) -> list[str]:
+            if str(row.get("Year", "")).strip().lower() == "total":
+                return [""] * len(row)
+            base = "background-color: #fafcfe;" if row.name % 2 else ""
+            return [base] * len(row)
+
         def pl_color(val):
             if isinstance(val, str) or pd.isna(val):
                 return ""
@@ -68,16 +81,22 @@ def render_annual_summary_tabs(
         if "Realised Profit / Loss (EUR)" in df_v.columns:
             styler = styler.map(pl_color, subset=["Realised Profit / Loss (EUR)"])
 
+        styler = styler.apply(_zebra_rows, axis=1)
+        styler = styler.apply(_highlight_total_row, axis=1)
         st.dataframe(styler, use_container_width=True)
 
     tabs = st.tabs(["➕ Combined (Shares+ETFs)", "📈 Shares (CGT)", "🧺 ETFs (Exit Tax)", "💸 Dividends", "⏳ ETFs (Deemed Disposal)"])
     with tabs[0]:
+        render_filter_chips(["Combined annual view", "Shares + ETFs", "Totals row highlighted"])
         style_and_show_summary(summary_combined)
     with tabs[1]:
+        render_filter_chips(["Shares-only annual view", "CGT regime", "Totals row highlighted"])
         style_and_show_summary(summary_shares)
     with tabs[2]:
+        render_filter_chips(["ETF annual view", "Exit tax regime", "Totals row highlighted"])
         style_and_show_summary(summary_etfs)
     with tabs[3]:
+        render_filter_chips(["Dividend aggregates", "By year / ticker / broker"])
         st.subheader("Dividend Summary")
         divs = out[out["Type"].eq("Dividend")].copy()
         if divs.empty:
@@ -122,19 +141,29 @@ def render_annual_summary_tabs(
             by_broker_year["Year"] = by_broker_year["Year"].astype(str)
 
             st.markdown("**Per Year**")
-            st.dataframe(per_year.style.format({"Gross": fmt_money, "Tax": fmt_money, "Net": fmt_money}), use_container_width=True)
+            st.dataframe(
+                per_year.style.format({"Gross": fmt_money, "Tax": fmt_money, "Net": fmt_money}),
+                use_container_width=True,
+            )
 
             st.markdown("**By Ticker**")
-            st.dataframe(by_ticker.style.format({"Gross": fmt_money, "Tax": fmt_money, "Net": fmt_money}), use_container_width=True)
+            st.dataframe(
+                by_ticker.style.format({"Gross": fmt_money, "Tax": fmt_money, "Net": fmt_money}),
+                use_container_width=True,
+            )
 
             st.markdown("**By Broker (Per Year)**")
-            st.dataframe(by_broker_year.style.format({"Gross": fmt_money, "Tax": fmt_money, "Net": fmt_money}), use_container_width=True)
+            st.dataframe(
+                by_broker_year.style.format({"Gross": fmt_money, "Tax": fmt_money, "Net": fmt_money}),
+                use_container_width=True,
+            )
 
             st.markdown("**Dividend Transactions**")
             tx_cols = ["Date", "Ticker - Name", "ISIN", "Currency", "Total", "Fee", "Order ID"]
             st.dataframe(divs.sort_values(by="Date").loc[:, tx_cols].style.format({"Total": fmt_money, "Fee": fmt_money}), use_container_width=True)
 
     with tabs[4]:
+        render_filter_chips(["8-year ETF rule", "Upcoming lots highlighted", "Manual FMV input"])
         planner = None
         est = None
         today = pd.Timestamp.today().normalize()

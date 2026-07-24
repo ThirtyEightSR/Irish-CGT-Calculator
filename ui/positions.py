@@ -13,6 +13,7 @@ def render_open_positions(
     replay_fifo_lots_all_fn: Callable[[pd.DataFrame], dict[str, list[dict[str, Any]]]],
 ) -> None:
     st.markdown("### 📊 Open Positions (Cost Basis — current holdings only)")
+    st.markdown('<div class="cgt-chip-wrap"><span class="cgt-chip">Fee-adjusted FIFO lots</span><span class="cgt-chip">Current holdings only</span></div>', unsafe_allow_html=True)
 
     if isinstance(out, pd.DataFrame) and not out.empty:
         try:
@@ -92,6 +93,44 @@ def render_open_positions(
                 else:
                     view = pd.DataFrame(rows).sort_values(by=["Company", "ISIN"])
 
+                    total_units = float(pd.to_numeric(view["Units"], errors="coerce").fillna(0).sum())
+                    total_lines = int(len(view))
+                    total_cost = float(pd.to_numeric(view["Total Cost (EUR)"], errors="coerce").fillna(0).sum())
+                    summary_cols = st.columns(3)
+                    with summary_cols[0]:
+                        st.markdown(
+                            (
+                                '<div class="cgt-card">'
+                                '<div class="cgt-card-label">Open holdings</div>'
+                                f'<div class="cgt-card-value">{total_lines:,}</div>'
+                                '<div class="cgt-card-note">Distinct instruments with positive quantity</div>'
+                                "</div>"
+                            ),
+                            unsafe_allow_html=True,
+                        )
+                    with summary_cols[1]:
+                        st.markdown(
+                            (
+                                '<div class="cgt-card">'
+                                '<div class="cgt-card-label">Total units</div>'
+                                f'<div class="cgt-card-value">{total_units:,.6f}</div>'
+                                '<div class="cgt-card-note">Sum of all remaining units</div>'
+                                "</div>"
+                            ),
+                            unsafe_allow_html=True,
+                        )
+                    with summary_cols[2]:
+                        st.markdown(
+                            (
+                                '<div class="cgt-card">'
+                                '<div class="cgt-card-label">Total invested cost</div>'
+                                f'<div class="cgt-card-value">€{total_cost:,.2f}</div>'
+                                '<div class="cgt-card-note">Fee-adjusted EUR cost basis</div>'
+                                "</div>"
+                            ),
+                            unsafe_allow_html=True,
+                        )
+
                     if "Avg Cost / Unit (Native)" in view.columns:
                         s_native = view["Avg Cost / Unit (Native)"]
                         empty_mask = s_native.isna() | s_native.astype(str).str.strip().eq("")
@@ -118,13 +157,12 @@ def render_open_positions(
 
                     st.dataframe(styler, use_container_width=True)
 
-                    invested = float(pd.to_numeric(view["Total Cost (EUR)"], errors="coerce").fillna(0).sum())
                     st.caption(
                         "Only positions with a positive remaining quantity are shown. "
                         "Average cost is your fee-adjusted cost per unit in EUR. "
                         "Where available, the native-cost column will approximate your "
                         "broker’s BEP (subject to minor rounding). "
-                        f"Total invested cost (EUR): **€{invested:,.2f}**"
+                        f"Total invested cost (EUR): **€{total_cost:,.2f}**"
                     )
 
         except Exception as e:

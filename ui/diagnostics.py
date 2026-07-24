@@ -6,6 +6,8 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
+from ui.components import render_filter_chips, render_stat_cards
+
 
 def build_fx_diagnostics_frame(out: Optional[pd.DataFrame]) -> pd.DataFrame:
     if not isinstance(out, pd.DataFrame) or out.empty:
@@ -63,6 +65,7 @@ def build_fx_diagnostics_frame(out: Optional[pd.DataFrame]) -> pd.DataFrame:
 
 def render_fx_diagnostics(out: Optional[pd.DataFrame]) -> None:
     st.markdown("### 💱 FX Mapping Checks")
+    render_filter_chips(["Trade FX sanity", "Missing-rate detection", "Non-EUR checks"])
 
     fx_diag = build_fx_diagnostics_frame(out)
     if fx_diag.empty:
@@ -71,6 +74,15 @@ def render_fx_diagnostics(out: Optional[pd.DataFrame]) -> None:
 
     issue_counts = fx_diag["Issue"].value_counts().reset_index()
     issue_counts.columns = ["Issue", "Rows"]
+    top_issue = str(issue_counts.iloc[0]["Issue"]) if not issue_counts.empty else "None"
+    render_stat_cards(
+        [
+            {"label": "Rows flagged", "value": f"{len(fx_diag):,}", "tone": "negative"},
+            {"label": "Issue types", "value": f"{len(issue_counts):,}"},
+            {"label": "Top issue", "value": top_issue, "note": "Most frequent anomaly"},
+        ],
+        columns=3,
+    )
     st.warning(f"Detected {len(fx_diag)} row(s) with FX mapping anomalies.")
     st.dataframe(issue_counts, use_container_width=True, hide_index=True)
 
@@ -83,6 +95,7 @@ def render_fx_diagnostics(out: Optional[pd.DataFrame]) -> None:
 
 def render_manual_missing_diagnostics(opening_lots_df: Optional[pd.DataFrame], out: Optional[pd.DataFrame]) -> None:
     st.markdown("### 📦 Imported Manual / Missing Transactions")
+    render_filter_chips(["Manual lot validation", "ISIN overlap check"])
 
     if opening_lots_df is not None and not opening_lots_df.empty:
         manual_df = opening_lots_df.copy()
@@ -134,6 +147,13 @@ def render_manual_missing_diagnostics(opening_lots_df: Optional[pd.DataFrame], o
             display_cols.append(eur_col)
 
         unique_isins = sorted(df_show["ISIN"].dropna().unique().tolist())
+        render_stat_cards(
+            [
+                {"label": "ISINs in manual file", "value": f"{len(unique_isins):,}"},
+                {"label": "Rows shown", "value": f"{min(len(df_show), 100):,}", "note": "Preview capped at 100 rows"},
+            ],
+            columns=2,
+        )
         st.markdown(f"**{len(unique_isins)} ISIN(s)** detected in your uploaded manual file:")
 
         st.dataframe(df_show[display_cols].head(100), use_container_width=True, hide_index=True)
@@ -142,9 +162,17 @@ def render_manual_missing_diagnostics(opening_lots_df: Optional[pd.DataFrame], o
             out_isins = set(out["ISIN"].astype(str).str.strip().dropna())
             missing_in_out = [i for i in unique_isins if i not in out_isins]
             if missing_in_out:
+                render_stat_cards(
+                    [{"label": "Unmatched ISINs", "value": f"{len(missing_in_out):,}", "tone": "negative"}],
+                    columns=1,
+                )
                 st.warning(f"⚠️ {len(missing_in_out)} ISIN(s) not found in your DEGIRO export:")
                 st.write(", ".join(missing_in_out))
             else:
+                render_stat_cards(
+                    [{"label": "Unmatched ISINs", "value": "0", "tone": "positive"}],
+                    columns=1,
+                )
                 st.success("✅ All ISINs from your manual file exist in your DEGIRO data.")
         else:
             st.info("Upload your DEGIRO CSV to compare ISINs against existing trades.")
@@ -154,6 +182,7 @@ def render_manual_missing_diagnostics(opening_lots_df: Optional[pd.DataFrame], o
 
 def render_incoming_transfer_diagnostics(out: Optional[pd.DataFrame], manual_norm: Optional[pd.DataFrame]) -> None:
     st.markdown("### 🔄 Incoming Transfers (promotion check)")
+    render_filter_chips(["Transfer detection", "Manual lot match"])
 
     if not isinstance(out, pd.DataFrame) or out.empty:
         st.caption("Upload and process a CSV first to enable incoming transfer checks.")
@@ -176,6 +205,10 @@ def render_incoming_transfer_diagnostics(out: Optional[pd.DataFrame], manual_nor
         st.caption("No incoming transfer rows found in your broker data.")
         return
 
+    render_stat_cards(
+        [{"label": "Incoming transfers", "value": f"{len(incoming_rows):,}"}],
+        columns=1,
+    )
     st.markdown(f"Found **{len(incoming_rows)} incoming transfer(s)** in your data.")
     preview_cols = [c for c in ["Date", "Ticker - Name", "ISIN", "Quantity", "Order ID", "Type"] if c in incoming_rows.columns]
     st.dataframe(incoming_rows[preview_cols].head(50), use_container_width=True)
@@ -207,6 +240,10 @@ def render_incoming_transfer_diagnostics(out: Optional[pd.DataFrame], manual_nor
                 unmatched.append({"ISIN": isin, "IncomingQty": inc_qty})
 
         if matched:
+            render_stat_cards(
+                [{"label": "Matched transfers", "value": f"{len(matched):,}", "tone": "positive"}],
+                columns=1,
+            )
             st.success(
                 f"✅ Matched **{len(matched)} incoming transfer{'s' if len(matched) != 1 else ''}** "
                 "to your uploaded manual lots file. These transfers have corresponding entries in "
@@ -216,6 +253,10 @@ def render_incoming_transfer_diagnostics(out: Optional[pd.DataFrame], manual_nor
             st.dataframe(pd.DataFrame(matched), use_container_width=True)
 
         if unmatched:
+            render_stat_cards(
+                [{"label": "Unmatched transfers", "value": f"{len(unmatched):,}", "tone": "negative"}],
+                columns=1,
+            )
             st.warning(
                 f"⚠️ {len(unmatched)} incoming transfer{'s' if len(unmatched) != 1 else ''} "
                 "could not be matched to any entry in your uploaded manual lots file."

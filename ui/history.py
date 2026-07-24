@@ -55,6 +55,20 @@ def render_transaction_history(
     if source_choice != "All" and "__SourceFile" in filtered.columns:
         filtered = filtered[filtered["__SourceFile"] == source_choice]
 
+    active_filters: list[str] = []
+    if year_choice != "All":
+        active_filters.append(f"Year: {year_choice}")
+    if asset_choice != "All":
+        active_filters.append(f"Asset: {asset_choice}")
+    if broker_choice != "All":
+        active_filters.append(f"Broker: {broker_choice}")
+    if source_choice != "All":
+        active_filters.append(f"Source: {source_choice}")
+    if not active_filters:
+        active_filters = ["All years", "All assets", "All brokers", "All files"]
+    chips_html = "".join(f'<span class="cgt-chip">{chip}</span>' for chip in active_filters)
+    st.markdown(f'<div class="cgt-chip-wrap">{chips_html}</div>', unsafe_allow_html=True)
+
     defaults = {
         "show_buys": st.session_state.get("show_buys", True),
         "show_sells": st.session_state.get("show_sells", True),
@@ -109,6 +123,43 @@ def render_transaction_history(
         filtered["Fee/Interest Amount"] = amount_col
 
     filtered = filtered.sort_values(by="Date", ascending=False, kind="mergesort")
+
+    total_rows = int(len(filtered))
+    gain_total = 0.0
+    if "Gain/Loss" in filtered.columns:
+        gain_total = float(pd.to_numeric(filtered["Gain/Loss"], errors="coerce").fillna(0).sum())
+    tone_cls = ""
+    if gain_total > 0:
+        tone_cls = " pos"
+    elif gain_total < 0:
+        tone_cls = " neg"
+    summary_cards = [
+        {
+            "label": "Rows in view",
+            "value": f"{total_rows:,}",
+            "note": "After filters and type toggles",
+            "tone": "neutral",
+        },
+        {
+            "label": "Gain/Loss in view",
+            "value": fmt_money_eur(gain_total),
+            "note": "Sum of visible rows",
+            "tone": "positive" if gain_total > 0 else ("negative" if gain_total < 0 else "neutral"),
+        },
+    ]
+    cols_cards = st.columns(2)
+    for idx, card in enumerate(summary_cards):
+        with cols_cards[idx]:
+            st.markdown(
+                (
+                    '<div class="cgt-card">'
+                    f'<div class="cgt-card-label">{card["label"]}</div>'
+                    f'<div class="cgt-card-value{tone_cls if idx == 1 else ""}">{card["value"]}</div>'
+                    f'<div class="cgt-card-note">{card["note"]}</div>'
+                    "</div>"
+                ),
+                unsafe_allow_html=True,
+            )
 
     display_cols = [
         c

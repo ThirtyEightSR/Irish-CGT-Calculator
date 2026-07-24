@@ -24,6 +24,7 @@ def render_what_if(
     tax_etf_delta_fn: Callable[[float, float, float], tuple[float, float, float]],
 ) -> None:
     st.markdown("### 🧮 What-if: sell to reduce this year’s tax")
+    st.markdown('<div class="cgt-chip-wrap"><span class="cgt-chip">Hypothetical sale simulator</span><span class="cgt-chip">No changes are applied to source data</span></div>', unsafe_allow_html=True)
 
     if out is not None and not out.empty:
         lots_map = replay_fifo_lots_all_fn(out)
@@ -100,6 +101,41 @@ def render_what_if(
                     def fmt(x: float) -> str:
                         return f"€{x:,.2f}"
 
+                    top_cards = st.columns(3)
+                    with top_cards[0]:
+                        st.markdown(
+                            (
+                                '<div class="cgt-card">'
+                                '<div class="cgt-card-label">Hypothetical gain/loss</div>'
+                                f'<div class="cgt-card-value{" pos" if hypo_gl > 0 else (" neg" if hypo_gl < 0 else "")}">{fmt(hypo_gl)}</div>'
+                                f'<div class="cgt-card-note">{regime}</div>'
+                                "</div>"
+                            ),
+                            unsafe_allow_html=True,
+                        )
+                    with top_cards[1]:
+                        st.markdown(
+                            (
+                                '<div class="cgt-card">'
+                                '<div class="cgt-card-label">YTD tax before</div>'
+                                f'<div class="cgt-card-value">{fmt(tax_now)}</div>'
+                                f'<div class="cgt-card-note">{tax_title}</div>'
+                                "</div>"
+                            ),
+                            unsafe_allow_html=True,
+                        )
+                    with top_cards[2]:
+                        st.markdown(
+                            (
+                                '<div class="cgt-card">'
+                                '<div class="cgt-card-label">Tax delta from this sale</div>'
+                                f'<div class="cgt-card-value{" pos" if delta > 0 else (" neg" if delta < 0 else "")}">{fmt(delta)}</div>'
+                                '<div class="cgt-card-note">Difference between before and after</div>'
+                                "</div>"
+                            ),
+                            unsafe_allow_html=True,
+                        )
+
                     res = pd.DataFrame(
                         [
                             ["Instrument", f"{choice}"],
@@ -118,18 +154,41 @@ def render_what_if(
     else:
         st.info("Upload and process a CSV first to use the What-if tool.")
 
-    st.markdown(
-        (
-            "#### Key differences\n\n"
-            "| Regime | Tax basis | Standard rate | Annual exemption | Loss offset | When due |\n"
-            "|---|---|---|---|---|---|\n"
-            "| **Shares (CGT)** | Capital gains | **33%** | **€1,270** per person | "
-            "**Allowed** (same-year or carried forward) | On disposal |\n"
-            "| **ETFs (Exit Tax)** | Deemed exit tax on gains | **41%** | **None** | "
-            "**Not applicable** | On gain events (disposals) |\n"
-            "| **ETFs (Deemed Disposal)** | Deemed disposal every 8 years (Fair Market Value input) | "
-            "**41%** | **None** | **Not applicable** | Every 8 years from acquisition |\n"
-            "| **Dividends** | Income tax rules (not CGT) | N/A here | N/A | N/A | "
-            "On receipt (withholding may apply) |\n"
-        )
+    st.markdown("#### Key differences")
+    regime_df = pd.DataFrame(
+        [
+            {
+                "Regime": "Shares (CGT)",
+                "Tax basis": "Capital gains",
+                "Standard rate": "33%",
+                "Annual exemption": "€1,270 per person",
+                "Loss offset": "Allowed (same-year or carried forward)",
+                "When due": "On disposal",
+            },
+            {
+                "Regime": "ETFs (Exit Tax)",
+                "Tax basis": "Deemed exit tax on gains",
+                "Standard rate": "41%",
+                "Annual exemption": "None",
+                "Loss offset": "Not applicable",
+                "When due": "On gain events (disposals)",
+            },
+            {
+                "Regime": "ETFs (Deemed Disposal)",
+                "Tax basis": "Deemed disposal every 8 years",
+                "Standard rate": "41%",
+                "Annual exemption": "None",
+                "Loss offset": "Not applicable",
+                "When due": "Every 8 years from acquisition",
+            },
+            {
+                "Regime": "Dividends",
+                "Tax basis": "Income tax rules (not CGT)",
+                "Standard rate": "N/A here",
+                "Annual exemption": "N/A",
+                "Loss offset": "N/A",
+                "When due": "On receipt (withholding may apply)",
+            },
+        ]
     )
+    st.dataframe(regime_df, use_container_width=True, hide_index=True)

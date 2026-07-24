@@ -60,6 +60,9 @@ def _load_ui_module(module_name: str, relative_path: str):
     module_path = repo_root / relative_path
 
     if module_name == "ui":
+        existing = sys.modules.get(module_name)
+        if existing is not None:
+            return existing
         package = types.ModuleType(module_name)
         package.__file__ = str(repo_root / "ui" / "__init__.py")
         package.__path__ = [str(repo_root / "ui")]
@@ -67,21 +70,21 @@ def _load_ui_module(module_name: str, relative_path: str):
         sys.modules[module_name] = package
         return package
 
-    if module_name not in sys.modules:
-        package = sys.modules.get("ui")
-        if package is None:
-            _load_ui_module("ui", "ui/__init__.py")
-            package = sys.modules["ui"]
+    package = sys.modules.get("ui")
+    if package is None:
+        _load_ui_module("ui", "ui/__init__.py")
 
-        spec = importlib.util.spec_from_file_location(module_name, module_path)
-        if spec is None or spec.loader is None:
-            raise ImportError(f"Could not load {module_name} from {module_path}")
-        module = importlib.util.module_from_spec(spec)
-        sys.modules[module_name] = module
-        spec.loader.exec_module(module)
-        return module
+    existing = sys.modules.get(module_name)
+    if existing is not None:
+        return importlib.reload(existing)
 
-    return sys.modules[module_name]
+    spec = importlib.util.spec_from_file_location(module_name, module_path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"Could not load {module_name} from {module_path}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    spec.loader.exec_module(module)
+    return module
 
 _load_ui_module("ui", "ui/__init__.py")
 

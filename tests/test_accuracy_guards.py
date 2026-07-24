@@ -9,6 +9,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 
 from core.tax import TaxConfig, build_annual_summary
 from core.deemed_disposal import _eight_year_anniversary
+from core.deemed_disposal import deemed_plan_and_estimates
 from core.reports import build_cgt1_export, build_form12_export
 from core.what_if import carry_forward_shares_to_year, fifo_cost_for_sale
 from services.output_builder import build_out_table
@@ -69,6 +70,31 @@ def test_fifo_cost_caps_to_available_lots() -> None:
 
 def test_deemed_disposal_leap_day_anniversary_stays_in_february() -> None:
     assert _eight_year_anniversary(pd.Timestamp("2020-02-29")) == pd.Timestamp("2028-02-29")
+
+
+def test_deemed_planner_includes_upcoming_lots_within_12_months() -> None:
+    out = pd.DataFrame(
+        {
+            "Date": [pd.Timestamp("2019-10-01")],
+            "ISIN": ["IE00ETFUPCOMING1"],
+            "Order ID": ["OID-ETF-1"],
+            "Type": ["Buy"],
+            "Asset": ["etf"],
+            "Quantity": [10.0],
+            "Price_EUR": [20.0],
+            "Total (EUR, fee-adj)": [200.0],
+            "Total (EUR)": [200.0],
+            "Ticker - Name": ["Test ETF"],
+            "Description": ["Buy 10 Test ETF @20 EUR"],
+            "Currency": ["EUR"],
+        }
+    )
+
+    planner, est = deemed_plan_and_estimates(out, asof=pd.Timestamp("2027-11-01"))
+
+    assert not planner.empty
+    assert not est.empty
+    assert planner["ISIN"].astype(str).eq("IE00ETFUPCOMING1").any()
 
 
 def test_pipeline_warns_on_missing_trade_valuations() -> None:

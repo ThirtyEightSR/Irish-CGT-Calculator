@@ -100,9 +100,14 @@ def _replay_fifo_lots_from_out(out_df: pd.DataFrame) -> Dict[str, List[Dict]]:
     return lots_by_isin
 
 
-def deemed_plan_and_estimates(out_df: pd.DataFrame, asof: Optional[pd.Timestamp] = None) -> Tuple[pd.DataFrame, pd.DataFrame]:
+def deemed_plan_and_estimates(
+    out_df: pd.DataFrame,
+    asof: Optional[pd.Timestamp] = None,
+    lookahead_days: Optional[int] = None,
+) -> Tuple[pd.DataFrame, pd.DataFrame]:
     if asof is None:
         asof = pd.Timestamp.today().normalize()
+    lookahead_cutoff = None if lookahead_days is None else asof + pd.Timedelta(days=max(int(lookahead_days), 0))
 
     lots_by_isin = _replay_fifo_lots_from_out(out_df)
     rows: List[Dict] = []
@@ -110,7 +115,9 @@ def deemed_plan_and_estimates(out_df: pd.DataFrame, asof: Optional[pd.Timestamp]
         for L in lots:
             acq = pd.to_datetime(L["acq"])
             dd = _eight_year_anniversary(acq)
-            if dd > asof or L["qty"] <= 1e-12:
+            if L["qty"] <= 1e-12:
+                continue
+            if lookahead_cutoff is not None and dd > lookahead_cutoff:
                 continue
             unit_cost = float(L["unit_cost_eur"] or 0.0)
             unit_fmv = _last_trade_price_eur_before(out_df, isin, dd)

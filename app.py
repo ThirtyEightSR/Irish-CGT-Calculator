@@ -247,7 +247,7 @@ summary_shares = build_annual_summary(df_sum, "share", years_sorted, tax_cfg)
 summary_etfs = build_annual_summary(df_sum, "etf", years_sorted, tax_cfg)
 summary_combined = build_annual_summary(df_sum, None, years_sorted, tax_cfg)
 
-section_labels = ["Overview", "Transactions", "Open Positions", "What-if", "Diagnostics", "Exports"]
+section_labels = ["📊 Overview", "📜 Transactions", "📂 Open Positions", "🧪 What-if", "🛠️ Diagnostics", "📤 Exports"]
 section_help = {
     "Overview": "A quick snapshot of key totals before you drill into the detailed tables.",
     "Transactions": "Browse the full trade history and filter by year, asset, broker, or source file.",
@@ -258,6 +258,8 @@ section_help = {
 }
 
 section_tabs = st.tabs(section_labels)
+transaction_mix = pd.DataFrame(columns=["Type", "Rows"])
+top_holdings = pd.DataFrame(columns=["Holding", "ISIN", "Units", "Cost (EUR)"])
 
 with section_tabs[0]:
     st.caption(section_help["Overview"])
@@ -430,24 +432,6 @@ with section_tabs[0]:
                 deemed_exit_tax_rate=EXIT_TAX_RATE,
             )
 
-            snap_cols = st.columns(2)
-            with snap_cols[0]:
-                st.markdown("#### Transaction Mix")
-                st.caption("How the loaded file breaks down by transaction type.")
-                if transaction_mix.empty:
-                    st.info("No transaction type breakdown available.")
-                else:
-                    st.dataframe(transaction_mix, use_container_width=True, hide_index=True)
-            with snap_cols[1]:
-                st.markdown("#### Top Open Holdings")
-                st.caption("Largest current holdings by fee-adjusted cost basis.")
-                if top_holdings.empty:
-                    st.info("No open holdings available yet.")
-                else:
-                    st.dataframe(
-                        top_holdings.style.format({"Units": lambda x: f"{float(x):.6f}".rstrip("0").rstrip("."), "Cost (EUR)": fmt_money_eur}),
-                        use_container_width=True,
-                    )
         except Exception as overview_error:
             st.caption(f"Overview metrics unavailable: {overview_error}")
     else:
@@ -463,6 +447,25 @@ with section_tabs[1]:
         fmt_money=fmt_money,
         fmt_money_eur=fmt_money_eur,
     )
+
+    snap_cols = st.columns(2)
+    with snap_cols[0]:
+        st.markdown("#### Transaction Mix")
+        st.caption("How the loaded file breaks down by transaction type.")
+        if transaction_mix.empty:
+            st.info("No transaction type breakdown available.")
+        else:
+            st.dataframe(transaction_mix, use_container_width=True, hide_index=True)
+    with snap_cols[1]:
+        st.markdown("#### Top Open Holdings")
+        st.caption("Largest current holdings by fee-adjusted cost basis.")
+        if top_holdings.empty:
+            st.info("No open holdings available yet.")
+        else:
+            st.dataframe(
+                top_holdings.style.format({"Units": lambda x: f"{float(x):.6f}".rstrip("0").rstrip("."), "Cost (EUR)": fmt_money_eur}),
+                use_container_width=True,
+            )
 
 with section_tabs[2]:
     st.caption(section_help["Open Positions"])

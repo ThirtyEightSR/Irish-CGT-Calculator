@@ -137,6 +137,24 @@ def render_annual_summary_tabs(
     with tabs[4]:
         planner = None
         est = None
+        today = pd.Timestamp.today().normalize()
+        upcoming_cutoff = today + pd.Timedelta(days=365)
+
+        def _deemed_status(deemed_date: object) -> str:
+            dt = pd.to_datetime(deemed_date, errors="coerce")
+            if pd.isna(dt):
+                return "Unknown"
+            dt = pd.Timestamp(dt).normalize()
+            if dt < today:
+                return "Past due"
+            if dt <= upcoming_cutoff:
+                return "Upcoming (12m)"
+            return "Later"
+
+        def _highlight_upcoming_row(row: pd.Series) -> list[str]:
+            if row.get("Status") == "Upcoming (12m)":
+                return ["background-color: #fff3cd"] * len(row)
+            return [""] * len(row)
 
         if out is not None and not out.empty:
             has_etfs = out.get("Asset") is not None and out["Asset"].astype(str).str.lower().eq("etf").any()
@@ -155,15 +173,27 @@ def render_annual_summary_tabs(
             st.caption("Upload a DEGIRO CSV with ETF transactions to generate the planner and estimate.")
         else:
             if planner.empty:
-                st.info("No ETF lots currently held for ≥ 8 years — nothing to plan yet.")
+                st.info("No ETF lots currently open for deemed-disposal planning.")
             else:
                 total = len(planner)
                 by_year = planner["__year"].value_counts().sort_index()
-                st.write(f"Lots hitting deemed disposal (8-year): **{total}**")
+                status_counts = planner.assign(Status=planner["DeemedDate"].apply(_deemed_status))["Status"].value_counts()
+                upcoming_count = int(status_counts.get("Upcoming (12m)", 0))
+                st.write(f"Open ETF lots in deemed-disposal schedule: **{total}**  |  Upcoming in 12 months: **{upcoming_count}**")
                 st.dataframe(by_year.rename_axis("Year").reset_index(name="Lots"))
+                st.caption("Status legend: Upcoming (12m) is highlighted in yellow.")
 
                 with st.expander("Lots (planner)"):
-                    st.dataframe(planner[["ISIN", "AcquisitionDate", "DeemedDate", "QtyRemaining"]], use_container_width=True)
+                    planner_view = planner[["ISIN", "AcquisitionDate", "DeemedDate", "QtyRemaining"]].copy()
+                    planner_view["Status"] = planner_view["DeemedDate"].apply(_deemed_status)
+                    st.dataframe(
+                        planner_view.style.apply(_highlight_upcoming_row, axis=1).format(
+                            {
+                                "QtyRemaining": lambda x: "" if pd.isna(x) else f"{float(x):.6f}".rstrip("0").rstrip("."),
+                            }
+                        ),
+                        use_container_width=True,
+                    )
 
             if est is None or est.empty:
                 st.info("No proposed valuations could be derived yet.")
@@ -207,6 +237,7 @@ def render_annual_summary_tabs(
                 price_map = dict(zip(price_inputs["ISIN"], price_inputs["__unit_price"]))
 
                 est_view = est.copy().rename(columns={"UnitCostEUR": "Unit Cost (EUR)"})
+                est_view["Status"] = est_view["DeemedDate"].apply(_deemed_status)
                 est_view["Fair Market Value (Unit EUR)"] = est_view["ISIN"].map(price_map)
                 est_view["Fair Market Value (EUR)"] = est_view["Fair Market Value (Unit EUR)"] * est_view["QtyRemaining"]
                 est_view["Estimated Gain (EUR)"] = est_view["Fair Market Value (EUR)"] - (
@@ -218,6 +249,7 @@ def render_annual_summary_tabs(
                     "ISIN",
                     "AcquisitionDate",
                     "DeemedDate",
+                    "Status",
                     "QtyRemaining",
                     "Unit Cost (EUR)",
                     "Fair Market Value (Unit EUR)",
@@ -230,7 +262,8 @@ def render_annual_summary_tabs(
                 st.dataframe(
                     est_view[show_cols]
                     .sort_values(by=["DeemedDate", "ISIN", "AcquisitionDate"])
-                    .style.format(
+                    .style.apply(_highlight_upcoming_row, axis=1)
+                    .format(
                         {
                             "QtyRemaining": lambda x: "" if pd.isna(x) else f"{float(x):.6f}".rstrip("0").rstrip("."),
                             "Unit Cost (EUR)": fmt_money,

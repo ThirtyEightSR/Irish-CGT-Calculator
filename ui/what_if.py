@@ -63,9 +63,10 @@ def render_what_if(
                 if qty <= 0 or price_eur <= 0:
                     st.caption("Enter a positive quantity and price to simulate.")
                 else:
+                    qty_sim = min(float(qty), float(avail))
                     kind = asset_kind_for_isin_fn(out, picked_isin)
-                    cost = fifo_cost_for_sale_fn(out, picked_isin, qty)
-                    proceeds = qty * price_eur
+                    cost = fifo_cost_for_sale_fn(out, picked_isin, qty_sim)
+                    proceeds = qty_sim * price_eur
                     hypo_gl = proceeds - cost
 
                     year_now = year_today_fn()
@@ -75,7 +76,7 @@ def render_what_if(
                         st.warning(
                             (
                                 f"Selected quantity exceeds current holding ({avail:.6f}). "
-                                "Simulation uses available lots for cost basis; consider lowering 'Units to sell'."
+                                f"Simulation is capped to available holdings ({qty_sim:.6f} units)."
                             )
                         )
 

@@ -21,20 +21,22 @@ def build_fx_diagnostics_frame(out: Optional[pd.DataFrame]) -> pd.DataFrame:
         return pd.DataFrame()
 
     currency = df["Currency"].astype(str).str.upper().str.strip() if "Currency" in df.columns else pd.Series("", index=df.index)
+    currency = currency.replace({"NAN": "", "NONE": ""})
     fx_rate = pd.to_numeric(df["FX_Rate"], errors="coerce") if "FX_Rate" in df.columns else pd.Series(np.nan, index=df.index, dtype="float64")
     fx_ccy = df["FXCCY"].astype(str).str.upper().str.strip() if "FXCCY" in df.columns else pd.Series("", index=df.index)
+    fx_ccy = fx_ccy.replace({"NAN": "", "NONE": ""})
 
     issues = pd.Series("", index=df.index, dtype="object")
 
-    non_eur_mask = trade_mask & ~currency.eq("EUR") & ~fx_ccy.eq("EUR")
+    missing_fx_code = trade_mask & currency.ne("EUR") & fx_ccy.eq("")
+    issues.loc[missing_fx_code] = "Missing FXCCY code for non-EUR trade"
+
+    non_eur_mask = trade_mask & ~currency.eq("EUR") & ~fx_ccy.eq("EUR") & ~fx_ccy.eq("")
     issues.loc[non_eur_mask & fx_rate.isna()] = "Missing FX_Rate for non-EUR trade"
     issues.loc[non_eur_mask & fx_rate.notna() & fx_rate.round(6).eq(1.0)] = "Suspicious FX_Rate=1.0 for non-EUR trade"
 
     eur_mask = trade_mask & (currency.eq("EUR") | fx_ccy.eq("EUR"))
     issues.loc[eur_mask & fx_rate.notna() & ~fx_rate.round(6).eq(1.0)] = "EUR trade carries non-1.0 FX_Rate"
-
-    missing_fx_code = trade_mask & fx_ccy.eq("") & currency.ne("EUR")
-    issues.loc[missing_fx_code & issues.eq("")] = "Missing FXCCY code for non-EUR trade"
 
     # Build diagnostic table with FX rate source info
     # Put FX columns early so they're visible in Streamlit's default column ordering
@@ -71,7 +73,12 @@ def render_fx_diagnostics(out: Optional[pd.DataFrame]) -> None:
     issue_counts.columns = ["Issue", "Rows"]
     st.warning(f"Detected {len(fx_diag)} row(s) with FX mapping anomalies.")
     st.dataframe(issue_counts, use_container_width=True, hide_index=True)
-    st.dataframe(fx_diag.head(100), use_container_width=True, hide_index=True)
+
+    issue_options = ["All"] + sorted(issue_counts["Issue"].astype(str).tolist())
+    selected_issue = st.selectbox("Filter FX issues", issue_options, key="fx_issue_filter")
+    fx_show = fx_diag if selected_issue == "All" else fx_diag[fx_diag["Issue"].eq(selected_issue)]
+    st.caption(f"Showing {len(fx_show)} row(s).")
+    st.dataframe(fx_show, use_container_width=True, hide_index=True)
 
 
 def render_manual_missing_diagnostics(opening_lots_df: Optional[pd.DataFrame], out: Optional[pd.DataFrame]) -> None:

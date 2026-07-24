@@ -23,6 +23,13 @@ def _sum_mask_local(df: pd.DataFrame, mask: pd.Series, col: str) -> float:
     return float(s.fillna(0).sum())
 
 
+def _sum_mask_first_available(df: pd.DataFrame, mask: pd.Series, candidates: list[str]) -> float:
+    for col in candidates:
+        if col in df.columns:
+            return _sum_mask_local(df, mask, col)
+    return 0.0
+
+
 def build_annual_summary(
     df_source: pd.DataFrame,
     asset_filter: Optional[str],
@@ -44,8 +51,8 @@ def build_annual_summary(
         if asset_filter == "share":
             g = g_shares
 
-            buys_eur = _sum_mask_local(g, g["Type"].eq("Buy"), "Total (EUR, fee-adj)")
-            sells_eur = _sum_mask_local(g, g["Type"].eq("Sell"), "Total (EUR, fee-adj)")
+            buys_eur = _sum_mask_first_available(g, g["Type"].eq("Buy"), ["Total (EUR, fee-adj)", "Total (EUR)"])
+            sells_eur = _sum_mask_first_available(g, g["Type"].eq("Sell"), ["Total (EUR, fee-adj)", "Total (EUR)"])
             fees_eur = _sum_mask_local(g, g["Type"].eq("Fee"), "Fee")
             div_net_eur = _sum_mask_local(g, g["Type"].eq("Dividend"), "Total") - _sum_mask_local(
                 g, g["Type"].eq("Dividend"), "Fee"
@@ -87,8 +94,8 @@ def build_annual_summary(
         elif asset_filter == "etf":
             g = g_etfs
 
-            buys_eur = _sum_mask_local(g, g["Type"].eq("Buy"), "Total (EUR, fee-adj)")
-            sells_eur = _sum_mask_local(g, g["Type"].eq("Sell"), "Total (EUR, fee-adj)")
+            buys_eur = _sum_mask_first_available(g, g["Type"].eq("Buy"), ["Total (EUR, fee-adj)", "Total (EUR)"])
+            sells_eur = _sum_mask_first_available(g, g["Type"].eq("Sell"), ["Total (EUR, fee-adj)", "Total (EUR)"])
             fees_eur = _sum_mask_local(g, g["Type"].eq("Fee"), "Fee")
             div_net_eur = _sum_mask_local(g, g["Type"].eq("Dividend"), "Total") - _sum_mask_local(
                 g, g["Type"].eq("Dividend"), "Fee"
@@ -111,8 +118,12 @@ def build_annual_summary(
             }
 
         else:
-            buys_eur_all = _sum_mask_local(g_all, g_all["Type"].eq("Buy"), "Total (EUR, fee-adj)")
-            sells_eur_all = _sum_mask_local(g_all, g_all["Type"].eq("Sell"), "Total (EUR, fee-adj)")
+            buys_eur_all = _sum_mask_first_available(
+                g_all, g_all["Type"].eq("Buy"), ["Total (EUR, fee-adj)", "Total (EUR)"]
+            )
+            sells_eur_all = _sum_mask_first_available(
+                g_all, g_all["Type"].eq("Sell"), ["Total (EUR, fee-adj)", "Total (EUR)"]
+            )
             fees_eur_all = _sum_mask_local(g_all, g_all["Type"].eq("Fee"), "Fee")
             div_net_eur_all = _sum_mask_local(g_all, g_all["Type"].eq("Dividend"), "Total") - _sum_mask_local(
                 g_all, g_all["Type"].eq("Dividend"), "Fee"

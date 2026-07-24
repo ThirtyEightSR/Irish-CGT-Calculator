@@ -16,7 +16,18 @@ def render_open_positions(
 
     if isinstance(out, pd.DataFrame) and not out.empty:
         try:
-            lots_map = replay_fifo_lots_all_fn(out)
+            out_for_positions = out.copy()
+            incoming_mask = pd.Series(False, index=out_for_positions.index)
+            if "__IncomingTransfer" in out_for_positions.columns:
+                incoming_mask = incoming_mask | out_for_positions["__IncomingTransfer"].fillna(False)
+            if "Description" in out_for_positions.columns:
+                incoming_mask = incoming_mask | out_for_positions["Description"].astype(str).str.contains(
+                    "INCOMING TRANSFER", case=False, na=False
+                )
+            if incoming_mask.any():
+                out_for_positions = out_for_positions.loc[~incoming_mask].copy()
+
+            lots_map = replay_fifo_lots_all_fn(out_for_positions)
 
             if not lots_map:
                 st.info("No open positions at the moment.")

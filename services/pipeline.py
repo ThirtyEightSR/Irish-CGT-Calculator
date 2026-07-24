@@ -31,9 +31,9 @@ def _fill_missing_fx_rates(out: pd.DataFrame, warnings: list[str]) -> pd.DataFra
     if "Date" not in out.columns or "Currency" not in out.columns or "FXCCY" not in out.columns or "FX_Rate" not in out.columns:
         return out
     
-    # Initialize FX_Rate_Source_Date column (defaults to transaction date)
+    # Initialize source-date tracking; keep blank until a real/derived rate exists.
     out["Date_dt"] = pd.to_datetime(out["Date"], errors="coerce")
-    out["FX_Rate_Source_Date"] = out["Date_dt"]
+    out["FX_Rate_Source_Date"] = pd.NaT
     
     currency = out["Currency"].astype(str).str.upper().str.strip()
     fx_ccy = out["FXCCY"].astype(str).str.upper().str.strip()
@@ -44,6 +44,24 @@ def _fill_missing_fx_rates(out: pd.DataFrame, warnings: list[str]) -> pd.DataFra
     if not non_eur_mask.any():
         out = out.drop(columns=["Date_dt"], errors="ignore")
         return out
+
+    # If the raw rate already exists, its source is the transaction date.
+    existing_rate_mask = non_eur_mask & fx_rate.notna() & fx_rate.gt(0)
+    out.loc[existing_rate_mask, "FX_Rate_Source_Date"] = out.loc[existing_rate_mask, "Date_dt"]
+
+    # First fallback: derive the rate from native and EUR trade totals when both exist.
+    total_native = pd.to_numeric(out["Total"], errors="coerce") if "Total" in out.columns else pd.Series(np.nan, index=out.index, dtype="float64")
+    total_eur = pd.to_numeric(out["Total (EUR)"], errors="coerce") if "Total (EUR)" in out.columns else pd.Series(np.nan, index=out.index, dtype="float64")
+
+    derived_rate = (total_native.abs() / total_eur.abs()).where(total_eur.abs().gt(0))
+    derivable_mask = non_eur_mask & fx_rate.isna() & derived_rate.notna() & np.isfinite(derived_rate) & derived_rate.gt(0)
+    if derivable_mask.any():
+        out.loc[derivable_mask, "FX_Rate"] = derived_rate.loc[derivable_mask]
+        out.loc[derivable_mask, "FX_Rate_Source_Date"] = out.loc[derivable_mask, "Date_dt"]
+        warnings.append(
+            f"Derived {int(derivable_mask.sum())} missing FX_Rate(s) from Total and Total (EUR) on the same trade row."
+        )
+        fx_rate = pd.to_numeric(out["FX_Rate"], errors="coerce")
     
     missing_fx_mask = non_eur_mask & fx_rate.isna()
     if not missing_fx_mask.any():
@@ -122,10 +140,19 @@ def _append_fx_validation_warnings(out: pd.DataFrame, warnings: list[str]) -> No
         return
 
     currency = out["Currency"].astype(str).str.upper().str.strip() if "Currency" in out.columns else pd.Series("", index=out.index)
+    currency = currency.replace({"NAN": "", "NONE": ""})
     fx_rate = pd.to_numeric(out["FX_Rate"], errors="coerce") if "FX_Rate" in out.columns else pd.Series(np.nan, index=out.index, dtype="float64")
     fx_ccy = out["FXCCY"].astype(str).str.upper().str.strip() if "FXCCY" in out.columns else pd.Series("", index=out.index)
+    fx_ccy = fx_ccy.replace({"NAN": "", "NONE": ""})
 
-    non_eur_mask = trade_mask & ~currency.eq("EUR") & ~fx_ccy.eq("EUR")
+    missing_fx_code = trade_mask & currency.ne("EUR") & fx_ccy.eq("")
+    non_eur_mask = trade_mask & ~currency.eq("EUR") & ~fx_ccy.eq("EUR") & ~fx_ccy.eq("")
+
+    if missing_fx_code.any():
+        warnings.append(
+            f"{int(missing_fx_code.sum())} non-EUR trade row(s) are missing FXCCY code; broker FX mapping may be incomplete."
+        )
+
     if non_eur_mask.any():
         missing_fx = non_eur_mask & fx_rate.isna()
         if missing_fx.any():

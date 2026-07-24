@@ -191,8 +191,12 @@ try:
     df_norm = pipeline_result.df_norm
     out = pipeline_result.out
     split_audit_df = pipeline_result.split_audit_df
-    # Filter out FX rate missing warnings (shown in diagnostics tab instead)
-    top_level_warnings = [msg for msg in pipeline_result.warnings if "missing FX_Rate" not in msg]
+    # Keep FX-related warnings in Diagnostics tab only.
+    top_level_warnings = [
+        msg
+        for msg in pipeline_result.warnings
+        if ("FX_Rate" not in msg and "FX mapping" not in msg)
+    ]
     for msg in top_level_warnings:
         st.warning(msg)
 

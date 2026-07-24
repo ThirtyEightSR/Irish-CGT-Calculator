@@ -217,8 +217,18 @@ def carry_forward_shares_to_year(out_df: pd.DataFrame, year: int, use_exemption:
     df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
     df["__year"] = df["Date"].dt.year
 
+    if "Gain/Loss" not in df.columns:
+        return 0.0
+
     is_share = df["Asset"].astype(str).str.lower().eq("share") if "Asset" in df.columns else ~df.apply(_is_exit_tax_asset_row, axis=1)
-    y = df[df["Type"].eq("Sell") & is_share].groupby("__year")["Gain/Loss"].sum(min_count=1).fillna(0.0).to_dict()
+    y = (
+        df[df["Type"].eq("Sell") & is_share]
+        .assign(__gl=pd.to_numeric(df["Gain/Loss"], errors="coerce"))
+        .groupby("__year")["__gl"]
+        .sum(min_count=1)
+        .fillna(0.0)
+        .to_dict()
+    )
 
     carry = 0.0
     for yr in sorted(k for k in y.keys() if pd.notna(k) and k < year):
@@ -226,8 +236,8 @@ def carry_forward_shares_to_year(out_df: pd.DataFrame, year: int, use_exemption:
         if realised >= 0:
             used = min(carry, realised)
             remaining_gain = realised - used
-            ex_used = min(exemption_val, remaining_gain) if use_exemption else 0.0
-            max(0.0, remaining_gain - ex_used)
+            if use_exemption:
+                _ = min(exemption_val, remaining_gain)
             carry = max(0.0, carry - used)
         else:
             carry += abs(realised)

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
+import numpy as np
 import pandas as pd
 import streamlit as st
 
@@ -74,6 +75,8 @@ def render_transaction_history(
     with c5:
         show_fees_interest = st.toggle("Fees & Interest", value=defaults["show_fees_interest"])
 
+    st.caption("Fee shows explicit fees and dividend tax. Interest amounts are shown in Total.")
+
     st.session_state.show_buys = show_buys
     st.session_state.show_sells = show_sells
     st.session_state.show_dividends = show_dividends
@@ -94,6 +97,17 @@ def render_transaction_history(
     if hide_types:
         filtered = filtered[~filtered["Type"].isin(hide_types)]
 
+    show_fee_interest_amount_col = show_fees_interest and {"Type", "Fee", "Total"}.issubset(filtered.columns)
+    if show_fee_interest_amount_col:
+        fee_num = pd.to_numeric(filtered["Fee"], errors="coerce")
+        total_num = pd.to_numeric(filtered["Total"], errors="coerce")
+        amount_col = pd.Series(np.nan, index=filtered.index, dtype="float64")
+        mask_interest = filtered["Type"].eq("Interest")
+        mask_fee_like = filtered["Type"].isin(["Fee", "Dividend Tax"])
+        amount_col.loc[mask_interest] = total_num.loc[mask_interest]
+        amount_col.loc[mask_fee_like] = fee_num.loc[mask_fee_like]
+        filtered["Fee/Interest Amount"] = amount_col
+
     filtered = filtered.sort_values(by="Date", ascending=False, kind="mergesort")
 
     display_cols = [
@@ -108,6 +122,7 @@ def render_transaction_history(
             "Quantity",
             "Price",
             "Fee",
+            *(["Fee/Interest Amount"] if show_fee_interest_amount_col else []),
             "Total",
             "Total (EUR)",
             "Total (EUR, fee-adj)",
@@ -138,6 +153,7 @@ def render_transaction_history(
             "Quantity": fmt_qty,
             "Price": fmt_money,
             "Fee": fmt_money_eur,
+            "Fee/Interest Amount": fmt_money,
             "Total": fmt_money,
             "Total (EUR)": fmt_money_eur,
             "Total (EUR, fee-adj)": fmt_money_eur,
@@ -202,12 +218,46 @@ def render_transaction_history(
                     if cols:
                         detail = detail.loc[:, cols]
 
+                    detail_show_fee_interest_amount_col = {"Type", "Fee", "Total"}.issubset(detail.columns) and detail[
+                        "Type"
+                    ].isin(["Fee", "Interest", "Dividend Tax"]).any()
+                    if detail_show_fee_interest_amount_col:
+                        fee_num = pd.to_numeric(detail["Fee"], errors="coerce")
+                        total_num = pd.to_numeric(detail["Total"], errors="coerce")
+                        amount_col = pd.Series(np.nan, index=detail.index, dtype="float64")
+                        mask_interest = detail["Type"].eq("Interest")
+                        mask_fee_like = detail["Type"].isin(["Fee", "Dividend Tax"])
+                        amount_col.loc[mask_interest] = total_num.loc[mask_interest]
+                        amount_col.loc[mask_fee_like] = fee_num.loc[mask_fee_like]
+                        detail["Fee/Interest Amount"] = amount_col
+                        cols_pref = [
+                            "Date",
+                            "Ticker - Name",
+                            "ISIN",
+                            "Type",
+                            "Asset",
+                            "Currency",
+                            "Quantity",
+                            "Price",
+                            "Fee",
+                            *(["Fee/Interest Amount"] if detail_show_fee_interest_amount_col else []),
+                            "Total",
+                            "Total (EUR)",
+                            "Total (EUR, fee-adj)",
+                            "Gain/Loss",
+                            "Order ID",
+                            "Description",
+                        ]
+                        cols = [c for c in cols_pref if c in detail.columns]
+                        detail = detail.loc[:, cols]
+
                     styler = detail.style.format(
                         {
                             "Date": fmt_date,
                             "Quantity": fmt_qty,
                             "Price": fmt_money,
                             "Fee": fmt_money,
+                            "Fee/Interest Amount": fmt_money,
                             "Total": fmt_money,
                             "Total (EUR)": fmt_money,
                             "Total (EUR, fee-adj)": fmt_money,

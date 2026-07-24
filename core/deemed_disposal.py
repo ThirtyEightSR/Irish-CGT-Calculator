@@ -17,10 +17,20 @@ def _is_exit_tax_asset_row(row: pd.Series) -> bool:
 
 
 def _eight_year_anniversary(d: pd.Timestamp) -> pd.Timestamp:
+    ts = pd.Timestamp(d).normalize()
     try:
-        return d + pd.DateOffset(years=8)
+        shifted = ts + pd.DateOffset(years=8)
+        if shifted.year == ts.year + 8 and shifted.month == ts.month and shifted.day == ts.day:
+            return shifted.normalize()
     except Exception:
-        return pd.Timestamp(d.year + 8, d.month, 1) + pd.offsets.MonthEnd(0)
+        pass
+
+    target_year = ts.year + 8
+    try:
+        return pd.Timestamp(year=target_year, month=ts.month, day=ts.day).normalize()
+    except Exception:
+        # Preserve the calendar month and fall back to that month's end.
+        return (pd.Timestamp(year=target_year, month=ts.month, day=1) + pd.offsets.MonthEnd(0)).normalize()
 
 
 def _last_trade_price_eur_before(out_df: pd.DataFrame, isin: str, when: pd.Timestamp) -> Optional[float]:

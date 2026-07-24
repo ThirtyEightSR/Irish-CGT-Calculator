@@ -11,6 +11,7 @@ from core.tax import TaxConfig, build_annual_summary
 from core.deemed_disposal import _eight_year_anniversary
 from core.reports import build_cgt1_export, build_form12_export
 from core.what_if import carry_forward_shares_to_year, fifo_cost_for_sale
+from services.output_builder import build_out_table
 from services.pipeline import run_output_pipeline
 from services.corporate_actions import build_output
 from ui.reconciliation import build_tax_reconciliation_frame
@@ -161,6 +162,70 @@ def test_pipeline_fills_missing_fx_rate_from_nearest_date() -> None:
     assert any("Filled" in msg and "FX_Rate" in msg for msg in result.warnings)
 
 
+def test_pipeline_derives_missing_fx_rate_from_trade_totals() -> None:
+    out = pd.DataFrame(
+        {
+            "Date": [pd.Timestamp("2025-01-05")],
+            "Type": ["Buy"],
+            "Currency": ["USD"],
+            "FXCCY": [""],
+            "FX_Rate": [None],
+            "Total": [121.20],
+            "Total (EUR)": [108.55],
+            "Price_EUR": [27.1375],
+            "Gain/Loss": [None],
+        }
+    )
+
+    def _build_output(df_work: pd.DataFrame, opening_lots_df):
+        return out.copy(), pd.DataFrame()
+
+    result = run_output_pipeline(
+        df_norm=out,
+        opening_lots_df=None,
+        is_rich_missing_file=False,
+        merge_missing_transactions_fn=lambda a, b: a,
+        apply_missing_precedence_fn=lambda a, b: a,
+        build_output_fn=_build_output,
+    )
+
+    expected_rate = 121.20 / 108.55
+    assert float(result.out.loc[0, "FX_Rate"]) == expected_rate
+    assert pd.to_datetime(result.out.loc[0, "FX_Rate_Source_Date"]).date() == pd.Timestamp("2025-01-05").date()
+    assert any("Derived" in msg and "FX_Rate" in msg for msg in result.warnings)
+
+
+def test_build_out_table_preserves_fx_columns_for_diagnostics() -> None:
+    consolidated = pd.DataFrame(
+        {
+            "Date": [pd.Timestamp("2025-01-05")],
+            "Product": ["Test USD Asset"],
+            "ISIN": ["US00TESTFX123"],
+            "Order ID": ["OID-1"],
+            "Type": ["Buy"],
+            "Asset": ["share"],
+            "Currency": ["USD"],
+            "FXCCY": ["USD"],
+            "FX_Rate": [1.15],
+            "Quantity_signed": [10.0],
+            "Price": [12.0],
+            "Fee_signed": [0.0],
+            "Total_signed": [120.0],
+            "Total_EUR": [104.35],
+            "Total_EUR_FeeAdj": [104.35],
+            "Gain/Loss": [None],
+            "Description": ["Buy 10 Test USD Asset @12 USD"],
+        }
+    )
+
+    out = build_out_table(consolidated)
+
+    assert "FXCCY" in out.columns
+    assert "FX_Rate" in out.columns
+    assert out.loc[0, "FXCCY"] == "USD"
+    assert float(out.loc[0, "FX_Rate"]) == 1.15
+
+
 def test_fx_diagnostics_flags_row_level_anomaly() -> None:
     out = pd.DataFrame(
         {
@@ -180,6 +245,27 @@ def test_fx_diagnostics_flags_row_level_anomaly() -> None:
     fx_diag = build_fx_diagnostics_frame(out)
     assert not fx_diag.empty
     assert any("Suspicious FX_Rate=1.0" in issue for issue in fx_diag["Issue"].tolist())
+
+
+def test_fx_diagnostics_prioritizes_missing_fxccy_over_suspicious_one() -> None:
+    out = pd.DataFrame(
+        {
+            "Date": [pd.Timestamp("2025-01-01")],
+            "Ticker - Name": ["Test USD Asset"],
+            "ISIN": ["US00TESTFX124"],
+            "Type": ["Buy"],
+            "Currency": ["USD"],
+            "FXCCY": [""],
+            "FX_Rate": [1.0],
+            "Total (EUR)": [100.0],
+            "Price_EUR": [10.0],
+            "Description": ["Buy 10 Test USD Asset @10 USD"],
+        }
+    )
+
+    fx_diag = build_fx_diagnostics_frame(out)
+    assert not fx_diag.empty
+    assert fx_diag.iloc[0]["Issue"] == "Missing FXCCY code for non-EUR trade"
 
 
 def test_exports_align_on_simple_trade_row() -> None:

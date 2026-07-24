@@ -286,7 +286,7 @@ def render_dividend_tax_sidebar(out: pd.DataFrame | None) -> DividendTaxState:
     )
 
 
-def render_cgt1_export_expander(cgt1_df_full: pd.DataFrame) -> None:
+def render_cgt1_export_expander(cgt1_df_full: pd.DataFrame, summary_shares: pd.DataFrame | None = None) -> None:
     with st.expander("📄 CGT1 export", expanded=False):
         if cgt1_df_full.empty:
             st.info("No disposals to export.")
@@ -302,6 +302,24 @@ def render_cgt1_export_expander(cgt1_df_full: pd.DataFrame) -> None:
         else:
             cgt1_df = cgt1_df_full[_disp.dt.year.eq(int(year_choice))].copy()
             y_token = str(year_choice)
+
+        if summary_shares is not None and not summary_shares.empty and "Year" in summary_shares.columns:
+            summary_year = pd.to_numeric(summary_shares["Year"], errors="coerce")
+            if year_choice == "All years":
+                summary_slice = summary_shares.copy()
+            else:
+                summary_slice = summary_shares.loc[summary_year.eq(float(year_choice))].copy()
+
+            if not summary_slice.empty:
+                export_gain = pd.to_numeric(cgt1_df["Gain/Loss (EUR)"], errors="coerce").sum()
+                summary_gain = pd.to_numeric(summary_slice.get("Realised Profit / Loss (EUR)"), errors="coerce").sum()
+                gain_delta = float(export_gain - summary_gain)
+                if abs(gain_delta) > 0.01:
+                    st.warning(
+                        f"CGT1 export gain/loss differs from annual summary by €{gain_delta:,.2f} for the selected year."
+                    )
+                else:
+                    st.success("CGT1 export matches annual summary gain/loss within a €0.01 tolerance.")
 
         cgt1_df = cgt1_df.sort_values(by=["CGT Period", "Date Disposed", "Asset Type", "Ticker - Name"], kind="stable")
 
@@ -332,7 +350,12 @@ def render_cgt1_export_expander(cgt1_df_full: pd.DataFrame) -> None:
         )
 
 
-def render_form12_export_expander(out: pd.DataFrame, exit_tax_rate_etf: float, build_form12_export_fn: Callable[..., pd.DataFrame]) -> None:
+def render_form12_export_expander(
+    out: pd.DataFrame,
+    exit_tax_rate_etf: float,
+    build_form12_export_fn: Callable[..., pd.DataFrame],
+    summary_etfs: pd.DataFrame | None = None,
+) -> None:
     with st.expander("📄 Form 12 export (ETF Exit Tax)", expanded=False):
         f12_full = build_form12_export_fn(out, exit_tax_rate=exit_tax_rate_etf)
 
@@ -350,6 +373,28 @@ def render_form12_export_expander(out: pd.DataFrame, exit_tax_rate_etf: float, b
         else:
             f12_df = f12_full[d.dt.year.eq(int(year_choice))].copy()
             y_token = str(year_choice)
+
+        if summary_etfs is not None and not summary_etfs.empty and "Year" in summary_etfs.columns:
+            summary_year = pd.to_numeric(summary_etfs["Year"], errors="coerce")
+            if year_choice == "All years":
+                summary_slice = summary_etfs.copy()
+            else:
+                summary_slice = summary_etfs.loc[summary_year.eq(float(year_choice))].copy()
+
+            if not summary_slice.empty:
+                export_taxable = pd.to_numeric(f12_df["Taxable Gain (EUR)"], errors="coerce").sum()
+                export_tax = pd.to_numeric(f12_df[f"Tax @ {int(exit_tax_rate_etf*100)}% (EUR)"], errors="coerce").sum()
+                summary_taxable = pd.to_numeric(summary_slice.get("Taxable Gain (EUR)"), errors="coerce").sum()
+                tax_col = f"Tax @ {int(exit_tax_rate_etf*100)}% (EUR)"
+                summary_tax = pd.to_numeric(summary_slice.get(tax_col), errors="coerce").sum()
+                delta_taxable = float(export_taxable - summary_taxable)
+                delta_tax = float(export_tax - summary_tax)
+                if abs(delta_taxable) > 0.01 or abs(delta_tax) > 0.01:
+                    st.warning(
+                        f"Form 12 export differs from ETF summary by {delta_taxable:+.2f} taxable / €{delta_tax:,.2f} tax for the selected year."
+                    )
+                else:
+                    st.success("Form 12 export matches ETF summary within a €0.01 tolerance.")
 
         tax_col = [c for c in f12_df.columns if c.startswith("Tax @ ") and c.endswith("% (EUR)")]
         tax_col = tax_col[0] if tax_col else None

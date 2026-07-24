@@ -22,6 +22,60 @@ def _by_year(df: pd.DataFrame, col: str) -> pd.Series:
     return temp.groupby("Year")[col].sum()
 
 
+def build_tax_reconciliation_frame(
+    summary_shares: pd.DataFrame,
+    summary_etfs: pd.DataFrame,
+    summary_combined: pd.DataFrame,
+    cgt_rate_shares: float,
+    exit_tax_rate_etf: float,
+) -> pd.DataFrame:
+    share_tax_col = f"Tax @ {int(cgt_rate_shares * 100)}% (EUR)"
+    etf_tax_col = f"Tax @ {int(exit_tax_rate_etf * 100)}% (EUR)"
+
+    shares_pl = _by_year(summary_shares, "Realised Profit / Loss (EUR)")
+    shares_bf = _by_year(summary_shares, "B/F Loss Used (EUR)")
+    shares_ex = _by_year(summary_shares, "Exemption Used (EUR)")
+    shares_taxable = _by_year(summary_shares, "Taxable Gain (EUR)")
+    shares_tax = _by_year(summary_shares, share_tax_col)
+
+    etf_pl = _by_year(summary_etfs, "Realised Profit / Loss (EUR)")
+    etf_taxable = _by_year(summary_etfs, "Taxable Gain (EUR)")
+    etf_tax = _by_year(summary_etfs, etf_tax_col)
+
+    combined_tax_reported = _by_year(summary_combined, "Tax @ Combined (EUR)")
+
+    year_index = sorted(
+        set(shares_pl.index.tolist())
+        | set(shares_bf.index.tolist())
+        | set(shares_ex.index.tolist())
+        | set(shares_taxable.index.tolist())
+        | set(shares_tax.index.tolist())
+        | set(etf_pl.index.tolist())
+        | set(etf_taxable.index.tolist())
+        | set(etf_tax.index.tolist())
+        | set(combined_tax_reported.index.tolist())
+    )
+    if not year_index:
+        return pd.DataFrame()
+
+    rec = pd.DataFrame(index=year_index)
+    rec.index.name = "Year"
+    rec["Shares Realised P/L (EUR)"] = shares_pl.reindex(year_index, fill_value=0.0).values
+    rec["B/F Loss Used (EUR)"] = shares_bf.reindex(year_index, fill_value=0.0).values
+    rec["Exemption Used (EUR)"] = shares_ex.reindex(year_index, fill_value=0.0).values
+    rec["Shares Taxable Gain (EUR)"] = shares_taxable.reindex(year_index, fill_value=0.0).values
+    rec[f"Tax @ Shares {int(cgt_rate_shares * 100)}% (EUR)"] = shares_tax.reindex(year_index, fill_value=0.0).values
+    rec["ETFs Realised P/L (EUR)"] = etf_pl.reindex(year_index, fill_value=0.0).values
+    rec["ETFs Taxable Gain (EUR)"] = etf_taxable.reindex(year_index, fill_value=0.0).values
+    rec[f"Tax @ ETFs {int(exit_tax_rate_etf * 100)}% (EUR)"] = etf_tax.reindex(year_index, fill_value=0.0).values
+    rec["Tax @ Combined (recomputed) (EUR)"] = (
+        rec[f"Tax @ Shares {int(cgt_rate_shares * 100)}% (EUR)"] + rec[f"Tax @ ETFs {int(exit_tax_rate_etf * 100)}% (EUR)"]
+    )
+    rec["Tax @ Combined (reported) (EUR)"] = combined_tax_reported.reindex(year_index, fill_value=0.0).values
+    rec["Delta (Reported - Recomputed) (EUR)"] = rec["Tax @ Combined (reported) (EUR)"] - rec["Tax @ Combined (recomputed) (EUR)"]
+    return rec
+
+
 def render_tax_reconciliation_debug(
     summary_shares: pd.DataFrame,
     summary_etfs: pd.DataFrame,
@@ -31,53 +85,23 @@ def render_tax_reconciliation_debug(
     fmt_money_eur: Callable[[object], str],
 ) -> None:
     with st.expander("🧮 Tax Reconciliation (Debug)", expanded=False):
-        share_tax_col = f"Tax @ {int(cgt_rate_shares * 100)}% (EUR)"
-        etf_tax_col = f"Tax @ {int(exit_tax_rate_etf * 100)}% (EUR)"
-
-        shares_pl = _by_year(summary_shares, "Realised Profit / Loss (EUR)")
-        shares_bf = _by_year(summary_shares, "B/F Loss Used (EUR)")
-        shares_ex = _by_year(summary_shares, "Exemption Used (EUR)")
-        shares_taxable = _by_year(summary_shares, "Taxable Gain (EUR)")
-        shares_tax = _by_year(summary_shares, share_tax_col)
-
-        etf_pl = _by_year(summary_etfs, "Realised Profit / Loss (EUR)")
-        etf_taxable = _by_year(summary_etfs, "Taxable Gain (EUR)")
-        etf_tax = _by_year(summary_etfs, etf_tax_col)
-
-        combined_tax_reported = _by_year(summary_combined, "Tax @ Combined (EUR)")
-
-        year_index = sorted(
-            set(shares_pl.index.tolist())
-            | set(shares_bf.index.tolist())
-            | set(shares_ex.index.tolist())
-            | set(shares_taxable.index.tolist())
-            | set(shares_tax.index.tolist())
-            | set(etf_pl.index.tolist())
-            | set(etf_taxable.index.tolist())
-            | set(etf_tax.index.tolist())
-            | set(combined_tax_reported.index.tolist())
+        rec = build_tax_reconciliation_frame(
+            summary_shares=summary_shares,
+            summary_etfs=summary_etfs,
+            summary_combined=summary_combined,
+            cgt_rate_shares=cgt_rate_shares,
+            exit_tax_rate_etf=exit_tax_rate_etf,
         )
-        if not year_index:
+        if rec.empty:
             st.info("No annual summary rows available for reconciliation.")
             return
 
-        rec = pd.DataFrame(index=year_index)
-        rec.index.name = "Year"
-        rec["Shares Realised P/L (EUR)"] = shares_pl.reindex(year_index, fill_value=0.0).values
-        rec["B/F Loss Used (EUR)"] = shares_bf.reindex(year_index, fill_value=0.0).values
-        rec["Exemption Used (EUR)"] = shares_ex.reindex(year_index, fill_value=0.0).values
-        rec["Shares Taxable Gain (EUR)"] = shares_taxable.reindex(year_index, fill_value=0.0).values
-        rec[f"Tax @ Shares {int(cgt_rate_shares * 100)}% (EUR)"] = shares_tax.reindex(year_index, fill_value=0.0).values
-        rec["ETFs Realised P/L (EUR)"] = etf_pl.reindex(year_index, fill_value=0.0).values
-        rec["ETFs Taxable Gain (EUR)"] = etf_taxable.reindex(year_index, fill_value=0.0).values
-        rec[f"Tax @ ETFs {int(exit_tax_rate_etf * 100)}% (EUR)"] = etf_tax.reindex(year_index, fill_value=0.0).values
-        rec["Tax @ Combined (recomputed) (EUR)"] = (
-            rec[f"Tax @ Shares {int(cgt_rate_shares * 100)}% (EUR)"] + rec[f"Tax @ ETFs {int(exit_tax_rate_etf * 100)}% (EUR)"]
-        )
-        rec["Tax @ Combined (reported) (EUR)"] = combined_tax_reported.reindex(year_index, fill_value=0.0).values
-        rec["Delta (Reported - Recomputed) (EUR)"] = (
-            rec["Tax @ Combined (reported) (EUR)"] - rec["Tax @ Combined (recomputed) (EUR)"]
-        )
+        max_abs_delta = float(pd.to_numeric(rec["Delta (Reported - Recomputed) (EUR)"], errors="coerce").abs().fillna(0.0).max())
+        delta_rows = int((pd.to_numeric(rec["Delta (Reported - Recomputed) (EUR)"], errors="coerce").abs().fillna(0.0) > 0.01).sum())
+        if delta_rows:
+            st.warning(f"Reconciliation mismatch in {delta_rows} year(s); max absolute delta is €{max_abs_delta:,.2f}.")
+        else:
+            st.success("Reconciliation passes within a €0.01 tolerance.")
 
         st.caption(
             "Per-year bridge from realised gains/losses to taxable gain and tax due. "

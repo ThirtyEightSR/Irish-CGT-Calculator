@@ -95,6 +95,8 @@ def build_out_table(consolidated: pd.DataFrame) -> pd.DataFrame:
             "Type": consolidated["Type"],
             "Asset": consolidated["Asset"],
             "Currency": consolidated["Currency"],
+            "FXCCY": consolidated.get("FXCCY"),
+            "FX_Rate": consolidated.get("FX_Rate"),
             "Quantity": np.where(
                 consolidated["Type"].isin(["Buy", "Sell"]), consolidated["Quantity_signed"].abs(), np.nan
             ),
@@ -266,6 +268,8 @@ def apply_corporate_actions_and_map_fx(
     grouped["Fee_signed"] = grouped.get("Fee_signed", 0.0).fillna(0.0) + fee_prorata
 
     if not fees_oid.empty:
+        # Once order-level fees are allocated onto matching buy/sell rows,
+        # the original standalone fee rows are zeroed to avoid double counting.
         fee_rows_mask = grouped["Type"].eq("Fee") & grouped["Order ID"].isin(fees_oid["Order ID"])
         grouped.loc[fee_rows_mask, ["Fee_signed", "_CashValue", "Total_signed"]] = 0.0
 

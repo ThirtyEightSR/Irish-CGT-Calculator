@@ -95,6 +95,24 @@ def inject_global_styles() -> None:
             box-shadow: 0 1px 0 rgba(10, 30, 60, 0.03);
         }
 
+        .cgt-card.variant-blue {
+            background: linear-gradient(180deg, #f3f8ff 0%, #edf5ff 100%);
+            border-color: #c7dbf7;
+            box-shadow: 0 2px 8px rgba(25, 78, 145, 0.08);
+        }
+
+        .cgt-card.variant-green {
+            background: linear-gradient(180deg, #f2fbf7 0%, #eaf8f1 100%);
+            border-color: #bde8d3;
+            box-shadow: 0 2px 8px rgba(21, 120, 76, 0.08);
+        }
+
+        .cgt-card.variant-red {
+            background: linear-gradient(180deg, #fff4f4 0%, #ffeded 100%);
+            border-color: #f0c5c5;
+            box-shadow: 0 2px 8px rgba(166, 27, 27, 0.08);
+        }
+
         .cgt-card-label {
             color: var(--cgt-muted);
             font-size: 0.78rem;
@@ -423,7 +441,7 @@ def render_section_intro(text: str) -> None:
     st.markdown(f'<div class="cgt-section-intro"><p>{text}</p></div>', unsafe_allow_html=True)
 
 
-def render_stat_cards(cards: Sequence[dict[str, str]], columns: int = 4) -> None:
+def render_stat_cards(cards: Sequence[dict[str, Any]], columns: int = 4) -> None:
     if not cards:
         return
 
@@ -434,15 +452,24 @@ def render_stat_cards(cards: Sequence[dict[str, str]], columns: int = 4) -> None
             value = str(card.get("value", "")).strip()
             note = str(card.get("note", "")).strip()
             tone = str(card.get("tone", "neutral")).strip().lower()
+            variant = str(card.get("variant", "")).strip().lower()
             tone_cls = ""
             if tone == "positive":
                 tone_cls = " pos"
             elif tone == "negative":
                 tone_cls = " neg"
+
+            variant_map = {
+                "blue": " variant-blue",
+                "green": " variant-green",
+                "red": " variant-red",
+            }
+            variant_cls = variant_map.get(variant, "")
+
             note_html = f'<div class="cgt-card-note">{note}</div>' if note else ""
             st.markdown(
                 (
-                    '<div class="cgt-card">'
+                    f'<div class="cgt-card{variant_cls}">'
                     f'<div class="cgt-card-label">{label}</div>'
                     f'<div class="cgt-card-value{tone_cls}">{value}</div>'
                     f"{note_html}"

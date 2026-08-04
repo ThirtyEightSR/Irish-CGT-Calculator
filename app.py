@@ -391,9 +391,23 @@ if selected_key == "Overview":
             render_filter_chips([f"Current tax year{year_suffix}" if current_year is not None else "Current tax year"])
             render_stat_cards(
                 [
-                    {"label": f"Buys{year_suffix}", "value": fmt_money_eur(current_year_buys)},
-                    {"label": f"Sells{year_suffix}", "value": fmt_money_eur(current_year_sells)},
-                    {"label": f"Tax owed{year_suffix}", "value": fmt_money_eur(current_year_tax)},
+                    {
+                        "label": f"Buys{year_suffix}",
+                        "value": fmt_money_eur(current_year_buys),
+                        "variant": "blue",
+                    },
+                    {
+                        "label": f"Sells{year_suffix}",
+                        "value": fmt_money_eur(current_year_sells),
+                        "variant": "green",
+                        "tone": "positive",
+                    },
+                    {
+                        "label": f"Tax owed{year_suffix}",
+                        "value": fmt_money_eur(current_year_tax),
+                        "variant": "red",
+                        "tone": "negative",
+                    },
                 ],
                 columns=3,
             )

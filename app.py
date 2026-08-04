@@ -335,11 +335,16 @@ if selected_key == "Overview":
                 series_local = pd.Series(pd.to_numeric(df_local[col_name], errors="coerce"))
                 return float(series_local.fillna(0).sum())
 
-            if current_year is not None and not summary_combined.empty and "Year" in summary_combined.columns:
+            if (
+                current_year is not None
+                and isinstance(summary_combined, pd.DataFrame)
+                and not summary_combined.empty
+                and "Year" in summary_combined.columns
+            ):
                 current_year_values = pd.Series(pd.to_numeric(summary_combined["Year"], errors="coerce"))
                 current_year_mask = current_year_values.eq(float(current_year))
                 current_year_row = summary_combined.loc[current_year_mask, :].copy()
-                if not current_year_row.empty:
+                if isinstance(current_year_row, pd.DataFrame) and not current_year_row.empty:
                     current_year_buys = _sum_numeric_col(current_year_row, "Buys (EUR)")
                     current_year_sells = _sum_numeric_col(current_year_row, "Sells (EUR)")
 
@@ -452,7 +457,10 @@ elif selected_key == "Transactions":
                 continue
             total_cost_eur = float(sum(float(L.get("qty", 0.0)) * float(L.get("unit_cost_eur", 0.0)) for L in lots))
             isin_mask = out["ISIN"].astype(str).eq(str(isin))
-            name_series = out.loc[isin_mask, "Ticker - Name"].dropna().astype(str) if "Ticker - Name" in out.columns else pd.Series(dtype=str)
+            if "Ticker - Name" in out.columns and isinstance(out, pd.DataFrame):
+                name_series = pd.Series(out.loc[isin_mask, "Ticker - Name"]).dropna().astype(str)
+            else:
+                name_series = pd.Series(dtype=str)
             latest_name = name_series.iloc[-1] if not name_series.empty else str(isin)
             top_holdings_rows.append(
                 {

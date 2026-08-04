@@ -91,14 +91,15 @@ _load_ui_module("ui", "ui/__init__.py")
 components_module = _load_ui_module("ui.components", "ui/components.py")
 render_cgt1_export_expander = components_module.render_cgt1_export_expander
 render_dividend_summary_expander = components_module.render_dividend_summary_expander
-render_dividend_tax_sidebar = components_module.render_dividend_tax_sidebar
 render_form12_export_expander = components_module.render_form12_export_expander
 inject_density_mode_styles = components_module.inject_density_mode_styles
 inject_global_styles = components_module.inject_global_styles
+render_locked_feature = components_module.render_locked_feature
 render_main_sidebar = components_module.render_main_sidebar
 render_filter_chips = components_module.render_filter_chips
 render_section_intro = components_module.render_section_intro
 render_stat_cards = components_module.render_stat_cards
+render_tier_and_settings_menu = components_module.render_tier_and_settings_menu
 render_welcome_banner = components_module.render_welcome_banner
 
 annual_summary_module = _load_ui_module("ui.annual_summary", "ui/annual_summary.py")
@@ -132,24 +133,54 @@ fmt_date = format_date
 # ---------------- Page config ----------------
 st.set_page_config(page_title="CGT Tool", layout="wide")
 inject_global_styles()
-st.sidebar.markdown("## 📈 Irish CGT Tool")
-st.sidebar.caption("Review CGT, ETF exit tax, dividends, and trade history in one place.")
-render_welcome_banner()
+
+section_labels = ["📊 Overview", "📜 Transactions", "📂 Open Positions", "🧪 What-if", "🛠️ Diagnostics", "📤 Exports"]
+section_help = {
+    "Overview": "A quick snapshot of key totals before you drill into the detailed tables.",
+    "Transactions": "Browse the full trade history and filter by year, asset, broker, or source file.",
+    "Open Positions": "Inspect the current holdings and their cost basis without the noise of past trades.",
+    "What-if": "Model a sale to understand how it may affect this year’s tax position.",
+    "Diagnostics": "Check imported lots, incoming transfers, and any data-matching issues.",
+    "Exports": "Review export-ready views for CGT1, Form 12, and dividend summaries.",
+}
+
+with st.sidebar:
+    st.markdown("### Navigation")
+    if "section_nav" not in st.session_state or st.session_state.section_nav not in section_labels:
+        st.session_state.section_nav = section_labels[0]
+
+    for idx, section_label in enumerate(section_labels):
+        is_active = st.session_state.section_nav == section_label
+        if st.button(
+            section_label,
+            key=f"section_nav_btn_{idx}",
+            use_container_width=True,
+            type="primary" if is_active else "secondary",
+        ):
+            st.session_state.section_nav = section_label
+
+    selected_section = st.session_state.section_nav
 
 # ---------------- Sidebar: Import & settings ----------------
 sidebar_state = render_main_sidebar()
 uploads = sidebar_state.uploads
 opening_lots_df = sidebar_state.opening_lots_df
-show_bf_used = sidebar_state.show_bf_used
-show_ex_used = sidebar_state.show_ex_used
-show_carry_fw = sidebar_state.show_carry_fw
-show_cashflow = sidebar_state.show_cashflow
-show_total_fees = sidebar_state.show_total_fees
-use_exemption = sidebar_state.use_exemption
-exemption_val = sidebar_state.exemption_val
-cgt_rate_shares = sidebar_state.cgt_rate_shares
-exit_tax_rate_etf = sidebar_state.exit_tax_rate_etf
-compact_mode = sidebar_state.compact_mode
+tier_state, display_settings, tax_settings, dividend_tax_settings = render_tier_and_settings_menu()
+
+has_manual = "manual_transactions" in st.session_state and len(st.session_state.manual_transactions) > 0
+render_welcome_banner(expand_guide=not bool(uploads))
+
+show_bf_used = display_settings.show_bf_used
+show_ex_used = display_settings.show_ex_used
+show_carry_fw = display_settings.show_carry_fw
+show_cashflow = display_settings.show_cashflow
+show_total_fees = display_settings.show_total_fees
+compact_mode = display_settings.compact_mode
+
+use_exemption = tax_settings.use_exemption
+exemption_val = tax_settings.exemption_val
+cgt_rate_shares = tax_settings.cgt_rate_shares
+exit_tax_rate_etf = tax_settings.exit_tax_rate_etf
 
 inject_density_mode_styles(compact_mode)
 
@@ -163,8 +194,6 @@ if "fx_rates_manual" not in st.session_state:
 
 
 # ---------------- Main ----------------
-has_manual = "manual_transactions" in st.session_state and len(st.session_state.manual_transactions) > 0
-
 if not uploads and not has_manual:
     st.info("👈 Import a CSV or add manual transactions to see results.")
     st.stop()
@@ -216,11 +245,10 @@ except Exception as e:
     st.error(f"Could not parse CSV: {e}")
     st.stop()
 
-# ---- Dividend Tax Settings (rates + FX inputs) ----
-div_tax_state = render_dividend_tax_sidebar(out)
-tax_bracket = div_tax_state.tax_bracket
-usc_rate = div_tax_state.usc_rate
-prsi_rate = div_tax_state.prsi_rate
+# ---- Dividend Tax Settings ----
+tax_bracket = dividend_tax_settings.tax_bracket
+usc_rate = dividend_tax_settings.usc_rate
+prsi_rate = dividend_tax_settings.prsi_rate
 
 # Build the full export AFTER merging
 cgt1_df_full = None
@@ -258,23 +286,17 @@ tax_cfg = TaxConfig(
 summary_shares = build_annual_summary(df_sum, "share", years_sorted, tax_cfg)
 summary_etfs = build_annual_summary(df_sum, "etf", years_sorted, tax_cfg)
 summary_combined = build_annual_summary(df_sum, None, years_sorted, tax_cfg)
+current_year = int(max(years_sorted)) if years_sorted else None
 
-section_labels = ["📊 Overview", "📜 Transactions", "📂 Open Positions", "🧪 What-if", "🛠️ Diagnostics", "📤 Exports"]
-section_help = {
-    "Overview": "A quick snapshot of key totals before you drill into the detailed tables.",
-    "Transactions": "Browse the full trade history and filter by year, asset, broker, or source file.",
-    "Open Positions": "Inspect the current holdings and their cost basis without the noise of past trades.",
-    "What-if": "Model a sale to understand how it may affect this year’s tax position.",
-    "Diagnostics": "Check imported lots, incoming transfers, and any data-matching issues.",
-    "Exports": "Review export-ready views for CGT1, Form 12, and dividend summaries.",
-}
+selected_key = selected_section.replace("📊 ", "").replace("📜 ", "").replace("📂 ", "").replace("🧪 ", "").replace("🛠️ ", "").replace("📤 ", "")
+render_section_intro(section_help[selected_key])
 
-section_tabs = st.tabs(section_labels)
-transaction_mix = pd.DataFrame(columns=["Type", "Rows"])
-top_holdings = pd.DataFrame(columns=["Holding", "ISIN", "Units", "Cost (EUR)"])
+if tier_state.is_paid:
+    st.caption("Tier: Paid (full data and all sections unlocked)")
+else:
+    st.caption("Tier: Free (current-year summary only; other sections are locked)")
 
-with section_tabs[0]:
-    render_section_intro(section_help["Overview"])
+if selected_key == "Overview":
     if isinstance(out, pd.DataFrame) and not out.empty:
         try:
             rows_analyzed = int(len(out))
@@ -303,64 +325,6 @@ with section_tabs[0]:
                 if qty > 1e-12:
                     open_positions += 1
 
-            transaction_mix = (
-                out["Type"].astype("string").fillna("").str.strip().replace({"nan": "Unknown", "None": "Unknown"}).replace("", "Unknown").value_counts().head(5).reset_index()
-                if "Type" in out.columns
-                else pd.DataFrame(columns=["Type", "Rows"])
-            )
-            if not transaction_mix.empty:
-                transaction_mix.columns = ["Type", "Rows"]
-
-            top_holdings_rows = []
-            if "ISIN" in out.columns:
-                for isin, lots in lots_map.items():
-                    qty = float(sum(float(L.get("qty", 0.0)) for L in lots))
-                    if qty <= 1e-12:
-                        continue
-                    total_cost_eur = float(sum(float(L.get("qty", 0.0)) * float(L.get("unit_cost_eur", 0.0)) for L in lots))
-                    isin_mask = out["ISIN"].astype(str).eq(str(isin))
-                    name_series = out.loc[isin_mask, "Ticker - Name"].dropna().astype(str) if "Ticker - Name" in out.columns else pd.Series(dtype=str)
-                    latest_name = name_series.iloc[-1] if not name_series.empty else str(isin)
-                    top_holdings_rows.append(
-                        {
-                            "Holding": latest_name,
-                            "ISIN": str(isin),
-                            "Units": qty,
-                            "Cost (EUR)": total_cost_eur,
-                        }
-                    )
-
-            top_holdings = pd.DataFrame(top_holdings_rows).sort_values(by="Cost (EUR)", ascending=False).head(5) if top_holdings_rows else pd.DataFrame(columns=["Holding", "ISIN", "Units", "Cost (EUR)"])
-
-            annual_preview_cols = ["Year", "Buys (EUR)", "Sells (EUR)", "Realised Profit / Loss (EUR)", "Taxable Gain (EUR)"]
-            annual_preview_tax_cols = [c for c in summary_combined.columns if c.startswith("Tax @")]
-            annual_preview_optional = []
-            if show_bf_used:
-                annual_preview_optional.append("B/F Loss Used (EUR)")
-            if show_ex_used:
-                annual_preview_optional.append("Exemption Used (EUR)")
-            if show_carry_fw:
-                annual_preview_optional.append("Carry Forward (EUR)")
-            if show_cashflow:
-                annual_preview_optional.append("Net Cashflow (EUR)")
-            if show_total_fees:
-                annual_preview_optional.append("Total Fees (EUR)")
-
-            annual_preview_ordered = [c for c in annual_preview_cols if c in summary_combined.columns]
-            annual_preview_ordered += [c for c in annual_preview_tax_cols if c in summary_combined.columns]
-            annual_preview_ordered += [c for c in annual_preview_optional if c in summary_combined.columns]
-            annual_preview = summary_combined.loc[:, annual_preview_ordered].copy() if annual_preview_ordered else summary_combined.copy()
-
-            if not annual_preview.empty:
-                annual_totals = {}
-                for col in annual_preview.columns:
-                    if col == "Year":
-                        continue
-                    annual_totals[col] = float(pd.to_numeric(annual_preview[col], errors="coerce").fillna(0).sum())
-                annual_preview = pd.concat([annual_preview, pd.DataFrame([{"Year": "Total", **annual_totals}])], ignore_index=True)
-                annual_preview["Year"] = annual_preview["Year"].astype(str)
-
-            current_year = int(max(years_sorted)) if years_sorted else None
             current_year_buys = 0.0
             current_year_sells = 0.0
             current_year_tax = 0.0
@@ -431,6 +395,8 @@ with section_tabs[0]:
 
             st.markdown("#### Annual Summary Details")
             st.caption("Detailed annual summaries, dividend breakdowns, and deemed-disposal projections.")
+            if not tier_state.is_paid:
+                st.info("Historical years are visible but values are blurred on the free tier.")
             render_annual_summary_tabs(
                 summary_shares=summary_shares,
                 summary_etfs=summary_etfs,
@@ -445,6 +411,8 @@ with section_tabs[0]:
                 fmt_money_eur=fmt_money_eur,
                 deemed_plan_and_estimates_fn=_deemed_plan_and_estimates,
                 deemed_exit_tax_rate=EXIT_TAX_RATE,
+                is_paid=tier_state.is_paid,
+                current_year=current_year,
             )
 
         except Exception as overview_error:
@@ -452,8 +420,10 @@ with section_tabs[0]:
     else:
         st.info("Upload and process data to see the overview summary.")
 
-with section_tabs[1]:
-    render_section_intro(section_help["Transactions"])
+elif not tier_state.is_paid:
+    render_locked_feature(selected_key)
+
+elif selected_key == "Transactions":
     render_transaction_history(
         out=out,
         years_sorted=years_sorted,
@@ -461,7 +431,39 @@ with section_tabs[1]:
         fmt_qty=fmt_qty,
         fmt_money=fmt_money,
         fmt_money_eur=fmt_money_eur,
+        is_paid=tier_state.is_paid,
+        current_year=current_year,
     )
+
+    transaction_mix = (
+        out["Type"].astype("string").fillna("").str.strip().replace({"nan": "Unknown", "None": "Unknown"}).replace("", "Unknown").value_counts().head(5).reset_index()
+        if "Type" in out.columns
+        else pd.DataFrame(columns=["Type", "Rows"])
+    )
+    if not transaction_mix.empty:
+        transaction_mix.columns = ["Type", "Rows"]
+
+    lots_map = replay_fifo_lots_all(out)
+    top_holdings_rows = []
+    if "ISIN" in out.columns:
+        for isin, lots in lots_map.items():
+            qty = float(sum(float(L.get("qty", 0.0)) for L in lots))
+            if qty <= 1e-12:
+                continue
+            total_cost_eur = float(sum(float(L.get("qty", 0.0)) * float(L.get("unit_cost_eur", 0.0)) for L in lots))
+            isin_mask = out["ISIN"].astype(str).eq(str(isin))
+            name_series = out.loc[isin_mask, "Ticker - Name"].dropna().astype(str) if "Ticker - Name" in out.columns else pd.Series(dtype=str)
+            latest_name = name_series.iloc[-1] if not name_series.empty else str(isin)
+            top_holdings_rows.append(
+                {
+                    "Holding": latest_name,
+                    "ISIN": str(isin),
+                    "Units": qty,
+                    "Cost (EUR)": total_cost_eur,
+                }
+            )
+
+    top_holdings = pd.DataFrame(top_holdings_rows).sort_values(by="Cost (EUR)", ascending=False).head(5) if top_holdings_rows else pd.DataFrame(columns=["Holding", "ISIN", "Units", "Cost (EUR)"])
 
     snap_cols = st.columns(2)
     with snap_cols[0]:
@@ -482,12 +484,10 @@ with section_tabs[1]:
                 use_container_width=True,
             )
 
-with section_tabs[2]:
-    render_section_intro(section_help["Open Positions"])
+elif selected_key == "Open Positions":
     render_open_positions(out=out, replay_fifo_lots_all_fn=replay_fifo_lots_all)
 
-with section_tabs[3]:
-    render_section_intro(section_help["What-if"])
+elif selected_key == "What-if":
     render_what_if(
         out=out,
         cgt_rate_shares=cgt_rate_shares,
@@ -506,8 +506,7 @@ with section_tabs[3]:
         tax_etf_delta_fn=tax_etf_delta,
     )
 
-with section_tabs[4]:
-    render_section_intro(section_help["Diagnostics"])
+elif selected_key == "Diagnostics":
     render_fx_diagnostics(out=out)
     render_manual_missing_diagnostics(opening_lots_df=opening_lots_df, out=out)
     render_incoming_transfer_diagnostics(out=out, manual_norm=_manual_norm)
@@ -520,8 +519,7 @@ with section_tabs[4]:
         fmt_money_eur=fmt_money_eur,
     )
 
-with section_tabs[5]:
-    render_section_intro(section_help["Exports"])
+elif selected_key == "Exports":
     if cgt1_df_full is not None:
         render_cgt1_export_expander(cgt1_df_full, summary_shares=summary_shares)
     else:

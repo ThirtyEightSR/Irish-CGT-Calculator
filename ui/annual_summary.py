@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import html
 import traceback
 from typing import Any, Callable
 
@@ -23,6 +24,8 @@ def render_annual_summary_tabs(
     fmt_money_eur: Callable[[Any], str],
     deemed_plan_and_estimates_fn: Callable[[pd.DataFrame], tuple[pd.DataFrame, pd.DataFrame]],
     deemed_exit_tax_rate: float,
+    is_paid: bool,
+    current_year: int | None,
 ) -> None:
     def style_and_show_summary(df: pd.DataFrame):
         if df.empty:
@@ -55,6 +58,56 @@ def render_annual_summary_tabs(
         df_v = pd.concat([df_v, pd.DataFrame([{"Year": "Total", **totals}])], ignore_index=True)
         df_v["Year"] = df_v["Year"].astype(str)
 
+        # Streamlit's styled dataframe does not consistently apply CSS blur filters.
+        # For free tier, render a lightweight HTML table so historical values are visibly blurred.
+        if not is_paid and current_year is not None:
+            df_display = df_v.copy()
+            money_cols = [c for c in df_display.columns if c != "Year"]
+            for col in money_cols:
+                num_series = pd.to_numeric(df_display[col], errors="coerce")
+                df_display[col] = num_series.apply(lambda v: fmt_money_eur(v) if pd.notna(v) else "")
+
+            year_num = pd.to_numeric(df_display["Year"], errors="coerce")
+            free_locked_rows = year_num.notna() & year_num.ne(float(current_year))
+
+            headers_html = "".join(f"<th>{html.escape(str(col))}</th>" for col in df_display.columns)
+            rows_html: list[str] = []
+            for idx, row in df_display.iterrows():
+                is_total = str(row.get("Year", "")).strip().lower() == "total"
+                row_classes = []
+                if is_total:
+                    row_classes.append("cgt-row-total")
+                elif idx % 2 == 1:
+                    row_classes.append("cgt-row-zebra")
+                row_class_attr = f' class="{" ".join(row_classes)}"' if row_classes else ""
+
+                cell_html: list[str] = []
+                is_locked = bool(free_locked_rows.iloc[idx]) if idx < len(free_locked_rows) else False
+                for col in df_display.columns:
+                    raw_val = "" if pd.isna(row[col]) else str(row[col])
+                    safe_val = html.escape(raw_val)
+                    if is_locked and col != "Year":
+                        safe_val = f'<span class="cgt-blur-cell">{safe_val}</span>'
+                    cell_html.append(f"<td>{safe_val}</td>")
+
+                rows_html.append(f"<tr{row_class_attr}>{''.join(cell_html)}</tr>")
+
+            st.markdown(
+                (
+                    "<style>"
+                    ".cgt-free-summary-table{width:100%;border-collapse:collapse;font-size:0.9rem;}"
+                    ".cgt-free-summary-table th,.cgt-free-summary-table td{border:1px solid #e2e8f0;padding:0.46rem 0.55rem;text-align:left;}"
+                    ".cgt-free-summary-table thead th{background:#f8fafc;color:#334155;font-weight:700;}"
+                    ".cgt-free-summary-table .cgt-row-zebra td{background:#fafcfe;}"
+                    ".cgt-free-summary-table .cgt-row-total td{background:#edf3fb;font-weight:700;}"
+                    ".cgt-blur-cell{display:inline-block;filter:blur(4px);-webkit-filter:blur(4px);user-select:none;}"
+                    "</style>"
+                    f"<table class='cgt-free-summary-table'><thead><tr>{headers_html}</tr></thead><tbody>{''.join(rows_html)}</tbody></table>"
+                ),
+                unsafe_allow_html=True,
+            )
+            return
+
         money_cols = [c for c in df_v.columns if c != "Year"]
         styler = df_v.style.format({c: fmt_money_eur for c in money_cols})
 
@@ -85,84 +138,106 @@ def render_annual_summary_tabs(
         styler = styler.apply(_highlight_total_row, axis=1)
         st.dataframe(styler, use_container_width=True)
 
-    tabs = st.tabs(["➕ Combined (Shares+ETFs)", "📈 Shares (CGT)", "🧺 ETFs (Exit Tax)", "💸 Dividends", "⏳ ETFs (Deemed Disposal)"])
+    tab_labels = ["➕ Combined (Shares+ETFs)", "📈 Shares (CGT)", "🧺 ETFs (Exit Tax)", "💸 Dividends", "⏳ ETFs (Deemed Disposal)"]
+    if not is_paid:
+        tab_labels = [
+            "➕ Combined (Shares+ETFs)",
+            "🔒 Shares (Paid)",
+            "🔒 ETFs (Paid)",
+            "🔒 Dividends (Paid)",
+            "🔒 Deemed Disposal (Paid)",
+        ]
+    tabs = st.tabs(tab_labels)
     with tabs[0]:
         render_filter_chips(["Combined annual view", "Shares + ETFs", "Totals row highlighted"])
         style_and_show_summary(summary_combined)
     with tabs[1]:
-        render_filter_chips(["Shares-only annual view", "CGT regime", "Totals row highlighted"])
-        style_and_show_summary(summary_shares)
-    with tabs[2]:
-        render_filter_chips(["ETF annual view", "Exit tax regime", "Totals row highlighted"])
-        style_and_show_summary(summary_etfs)
-    with tabs[3]:
-        render_filter_chips(["Dividend aggregates", "By year / ticker / broker"])
-        st.subheader("Dividend Summary")
-        divs = out[out["Type"].eq("Dividend")].copy()
-        if divs.empty:
-            st.info("No dividends found in this file.")
+        if not is_paid:
+            st.info("Shares annual detail is available on the paid tier.")
         else:
-            divs["Gross"] = pd.to_numeric(divs["Total"], errors="coerce").fillna(0).abs()
-            divs["TaxAmt"] = pd.to_numeric(divs["Fee"], errors="coerce").fillna(0)
-            divs["Currency"] = divs.get("Currency", "EUR").fillna("EUR").astype(str).str.upper().str.strip()
-            divs["Currency"] = divs["Currency"].replace({"": "EUR", "NAN": "EUR", "NONE": "EUR"})
-            divs["Year"] = pd.to_datetime(divs["Date"]).dt.year
-
-            per_year = (
-                divs.groupby(["Year", "Currency"], dropna=False)
-                .agg(Gross=("Gross", "sum"), Tax=("TaxAmt", "sum"))
-                .reset_index()
-                .sort_values(by=["Year", "Currency"], ascending=[False, True])
-            )
-            per_year["Net"] = per_year["Gross"] - per_year["Tax"]
-            per_year["Year"] = per_year["Year"].astype(str)
-
-            by_ticker = (
-                divs.groupby(["Ticker - Name", "ISIN", "Currency"], dropna=False)
-                .agg(Gross=("Gross", "sum"), Tax=("TaxAmt", "sum"), Payments=("Date", "count"))
-                .reset_index()
-                .sort_values(by="Gross", ascending=False)
-            )
-            by_ticker["Net"] = by_ticker["Gross"] - by_ticker["Tax"]
-
-            broker_col = "__Broker" if "__Broker" in divs.columns else None
-            if broker_col is None:
-                divs["Broker"] = "UNKNOWN"
-                broker_col = "Broker"
+            render_filter_chips(["Shares-only annual view", "CGT regime", "Totals row highlighted"])
+            style_and_show_summary(summary_shares)
+    with tabs[2]:
+        if not is_paid:
+            st.info("ETF annual detail is available on the paid tier.")
+        else:
+            render_filter_chips(["ETF annual view", "Exit tax regime", "Totals row highlighted"])
+            style_and_show_summary(summary_etfs)
+    with tabs[3]:
+        if not is_paid:
+            st.info("Dividend breakdown is available on the paid tier.")
+        else:
+            render_filter_chips(["Dividend aggregates", "By year / ticker / broker"])
+            st.subheader("Dividend Summary")
+            divs = out[out["Type"].eq("Dividend")].copy()
+            if divs.empty:
+                st.info("No dividends found in this file.")
             else:
-                divs["Broker"] = divs[broker_col].fillna("UNKNOWN").astype(str).str.strip().replace({"": "UNKNOWN"})
-            by_broker_year = (
-                divs.groupby(["Year", "Broker"], dropna=False)
-                .agg(Gross=("Gross", "sum"), Tax=("TaxAmt", "sum"), Payments=("Date", "count"))
-                .reset_index()
-                .sort_values(by=["Year", "Gross"], ascending=[False, False])
-            )
-            by_broker_year["Net"] = by_broker_year["Gross"] - by_broker_year["Tax"]
-            by_broker_year["Year"] = by_broker_year["Year"].astype(str)
+                divs["Gross"] = pd.to_numeric(divs["Total"], errors="coerce").fillna(0).abs()
+                divs["TaxAmt"] = pd.to_numeric(divs["Fee"], errors="coerce").fillna(0)
+                divs["Currency"] = divs.get("Currency", "EUR").fillna("EUR").astype(str).str.upper().str.strip()
+                divs["Currency"] = divs["Currency"].replace({"": "EUR", "NAN": "EUR", "NONE": "EUR"})
+                divs["Year"] = pd.to_datetime(divs["Date"]).dt.year
 
-            st.markdown("**Per Year**")
-            st.dataframe(
-                per_year.style.format({"Gross": fmt_money, "Tax": fmt_money, "Net": fmt_money}),
-                use_container_width=True,
-            )
+                per_year = (
+                    divs.groupby(["Year", "Currency"], dropna=False)
+                    .agg(Gross=("Gross", "sum"), Tax=("TaxAmt", "sum"))
+                    .reset_index()
+                    .sort_values(by=["Year", "Currency"], ascending=[False, True])
+                )
+                per_year["Net"] = per_year["Gross"] - per_year["Tax"]
+                per_year["Year"] = per_year["Year"].astype(str)
 
-            st.markdown("**By Ticker**")
-            st.dataframe(
-                by_ticker.style.format({"Gross": fmt_money, "Tax": fmt_money, "Net": fmt_money}),
-                use_container_width=True,
-            )
+                by_ticker = (
+                    divs.groupby(["Ticker - Name", "ISIN", "Currency"], dropna=False)
+                    .agg(Gross=("Gross", "sum"), Tax=("TaxAmt", "sum"), Payments=("Date", "count"))
+                    .reset_index()
+                    .sort_values(by="Gross", ascending=False)
+                )
+                by_ticker["Net"] = by_ticker["Gross"] - by_ticker["Tax"]
 
-            st.markdown("**By Broker (Per Year)**")
-            st.dataframe(
-                by_broker_year.style.format({"Gross": fmt_money, "Tax": fmt_money, "Net": fmt_money}),
-                use_container_width=True,
-            )
+                broker_col = "__Broker" if "__Broker" in divs.columns else None
+                if broker_col is None:
+                    divs["Broker"] = "UNKNOWN"
+                    broker_col = "Broker"
+                else:
+                    divs["Broker"] = divs[broker_col].fillna("UNKNOWN").astype(str).str.strip().replace({"": "UNKNOWN"})
+                by_broker_year = (
+                    divs.groupby(["Year", "Broker"], dropna=False)
+                    .agg(Gross=("Gross", "sum"), Tax=("TaxAmt", "sum"), Payments=("Date", "count"))
+                    .reset_index()
+                    .sort_values(by=["Year", "Gross"], ascending=[False, False])
+                )
+                by_broker_year["Net"] = by_broker_year["Gross"] - by_broker_year["Tax"]
+                by_broker_year["Year"] = by_broker_year["Year"].astype(str)
 
-            st.markdown("**Dividend Transactions**")
-            tx_cols = ["Date", "Ticker - Name", "ISIN", "Currency", "Total", "Fee", "Order ID"]
-            st.dataframe(divs.sort_values(by="Date").loc[:, tx_cols].style.format({"Total": fmt_money, "Fee": fmt_money}), use_container_width=True)
+                st.markdown("**Per Year**")
+                st.dataframe(
+                    per_year.style.format({"Gross": fmt_money, "Tax": fmt_money, "Net": fmt_money}),
+                    use_container_width=True,
+                )
+
+                st.markdown("**By Ticker**")
+                st.dataframe(
+                    by_ticker.style.format({"Gross": fmt_money, "Tax": fmt_money, "Net": fmt_money}),
+                    use_container_width=True,
+                )
+
+                st.markdown("**By Broker (Per Year)**")
+                st.dataframe(
+                    by_broker_year.style.format({"Gross": fmt_money, "Tax": fmt_money, "Net": fmt_money}),
+                    use_container_width=True,
+                )
+
+                st.markdown("**Dividend Transactions**")
+                tx_cols = ["Date", "Ticker - Name", "ISIN", "Currency", "Total", "Fee", "Order ID"]
+                st.dataframe(divs.sort_values(by="Date").loc[:, tx_cols].style.format({"Total": fmt_money, "Fee": fmt_money}), use_container_width=True)
 
     with tabs[4]:
+        if not is_paid:
+            st.info("ETF deemed-disposal planner is available on the paid tier.")
+            return
+
         render_filter_chips(["8-year ETF rule", "Upcoming lots highlighted", "Manual FMV input"])
         planner = None
         est = None

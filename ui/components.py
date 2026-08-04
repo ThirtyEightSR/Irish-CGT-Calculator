@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import re
+import base64
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Callable, Sequence
 
 import numpy as np
@@ -16,16 +18,6 @@ from core.settings import DEFAULT_CGT_EXEMPTION_EUR, DEFAULT_CGT_RATE_SHARES, DE
 class SidebarState:
     uploads: list[Any]
     opening_lots_df: pd.DataFrame | None
-    show_bf_used: bool
-    show_ex_used: bool
-    show_carry_fw: bool
-    show_cashflow: bool
-    show_total_fees: bool
-    use_exemption: bool
-    exemption_val: float
-    cgt_rate_shares: float
-    exit_tax_rate_etf: float
-    compact_mode: bool
 
 
 @dataclass
@@ -33,6 +25,30 @@ class DividendTaxState:
     tax_bracket: float
     usc_rate: float
     prsi_rate: float
+
+
+@dataclass
+class DisplaySettingsState:
+    show_bf_used: bool
+    show_ex_used: bool
+    show_carry_fw: bool
+    show_cashflow: bool
+    show_total_fees: bool
+    compact_mode: bool
+
+
+@dataclass
+class TaxSettingsState:
+    use_exemption: bool
+    exemption_val: float
+    cgt_rate_shares: float
+    exit_tax_rate_etf: float
+
+
+@dataclass
+class TierState:
+    tier: str
+    is_paid: bool
 
 
 def inject_global_styles() -> None:
@@ -127,6 +143,114 @@ def inject_global_styles() -> None:
             font-weight: 500;
         }
 
+        .cgt-hero {
+            background: linear-gradient(120deg, #0f3f74 0%, #1b5e99 52%, #1f7aae 100%);
+            border-radius: 16px;
+            padding: 1rem 1rem 0.9rem 1rem;
+            margin: 0.15rem 0 0.85rem 0;
+            box-shadow: 0 8px 24px rgba(11, 39, 78, 0.18);
+            border: 1px solid rgba(255, 255, 255, 0.16);
+        }
+
+        .cgt-hero-title {
+            color: #ffffff;
+            font-size: 1.15rem;
+            font-weight: 800;
+            letter-spacing: 0.01em;
+            margin: 0 0 0.65rem 0;
+        }
+
+        .cgt-hero-grid {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 0.5rem;
+        }
+
+        .cgt-hero-pill {
+            background: rgba(255, 255, 255, 0.17);
+            border: 1px solid rgba(255, 255, 255, 0.24);
+            border-radius: 12px;
+            padding: 0.55rem 0.62rem;
+        }
+
+        .cgt-hero-pill strong {
+            color: #ffffff;
+            font-size: 1.18rem;
+        }
+
+        .cgt-hero-pill span {
+            display: block;
+            color: #e7f4ff;
+            font-size: 1rem;
+            margin-top: 0.08rem;
+            line-height: 1.25;
+        }
+
+        .cgt-platform-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 0.7rem;
+            margin: 0.2rem 0 0.45rem 0;
+        }
+
+        .cgt-platform-card {
+            background: #ffffff;
+            border: 1px solid #d8e1ec;
+            border-radius: 12px;
+            padding: 0.75rem 0.82rem;
+            box-shadow: 0 1px 0 rgba(10, 30, 60, 0.03);
+        }
+
+        .cgt-logo-card {
+            background: #ffffff;
+            border: 1px solid #d8e1ec;
+            border-radius: 12px;
+            padding: 0.6rem;
+            height: 132px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 0.55rem;
+        }
+
+        .cgt-logo-card img {
+            max-width: 94%;
+            max-height: 104px;
+            width: auto;
+            height: auto;
+            object-fit: contain;
+            display: block;
+        }
+
+        .cgt-logo-fallback {
+            color: #354861;
+            font-size: 0.9rem;
+            font-weight: 700;
+            letter-spacing: 0.03em;
+            text-transform: uppercase;
+        }
+
+        .cgt-guide-card {
+            background: #ffffff;
+            border: 1px solid #d8e1ec;
+            border-radius: 12px;
+            padding: 0.75rem 0.82rem;
+            box-shadow: 0 1px 0 rgba(10, 30, 60, 0.03);
+        }
+
+        .cgt-platform-card ol,
+        .cgt-guide-card ul {
+            margin: 0;
+            padding-left: 1.05rem;
+            color: #334a62;
+            font-size: 0.82rem;
+            line-height: 1.34;
+        }
+
+        .cgt-guide-checklist {
+            margin-top: 0.2rem;
+        }
+
         @media (max-width: 900px) {
             .cgt-section-intro {
                 padding: 0.55rem 0.7rem;
@@ -187,6 +311,58 @@ def inject_global_styles() -> None:
 
             div[data-testid="stSidebar"] div[data-testid="stHorizontalBlock"] {
                 gap: 0.35rem;
+            }
+
+            .cgt-hero {
+                border-radius: 14px;
+                padding: 0.78rem 0.75rem 0.72rem 0.75rem;
+                margin-bottom: 0.65rem;
+            }
+
+            .cgt-hero-title {
+                font-size: 1rem;
+                margin-bottom: 0.52rem;
+            }
+
+            .cgt-hero-grid {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+                gap: 0.42rem;
+            }
+
+            .cgt-hero-pill {
+                padding: 0.5rem 0.52rem;
+            }
+
+            .cgt-hero-pill strong {
+                font-size: 1.02rem;
+            }
+
+            .cgt-hero-pill span {
+                font-size: 0.88rem;
+            }
+
+            .cgt-platform-grid {
+                gap: 0.5rem;
+                grid-template-columns: 1fr;
+            }
+
+            .cgt-platform-card {
+                padding: 0.62rem 0.66rem;
+            }
+
+            .cgt-logo-card {
+                height: 104px;
+                padding: 0.45rem;
+            }
+
+            .cgt-logo-card img {
+                max-height: 78px;
+                max-width: 95%;
+            }
+
+            .cgt-platform-card ol,
+            .cgt-guide-card ul {
+                font-size: 0.77rem;
             }
         }
         </style>
@@ -284,29 +460,106 @@ def render_filter_chips(chips: Sequence[str]) -> None:
     st.markdown(f'<div class="cgt-chip-wrap">{chips_html}</div>', unsafe_allow_html=True)
 
 
-def render_welcome_banner() -> None:
-    st.markdown("## 🧭 Your CGT workspace")
-    st.caption("Upload your trades, review the summary, and explore the details without losing any of the underlying analysis.")
+def _logo_data_uri(path: Path) -> str:
+    raw = path.read_bytes()
+    suffix = path.suffix.lower()
+    if suffix == ".svg":
+        mime = "image/svg+xml"
+    elif suffix == ".png":
+        mime = "image/png"
+    elif suffix in {".jpg", ".jpeg"}:
+        mime = "image/jpeg"
+    elif suffix == ".webp":
+        mime = "image/webp"
+    else:
+        mime = "application/octet-stream"
+    encoded = base64.b64encode(raw).decode("ascii")
+    return f"data:{mime};base64,{encoded}"
 
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.markdown("1. **Import your data**")
-        st.caption("Add broker CSVs and optional missing-lot files.")
-    with col2:
-        st.markdown("2. **Review the overview**")
-        st.caption("Check the headline figures before diving into the tables.")
-    with col3:
-        st.markdown("3. **Explore the details**")
-        st.caption("Use positions, history, and what-if analysis for deeper review.")
+
+def _first_existing_logo(repo_root: Path, stem: str) -> Path | None:
+    for ext in [".svg", ".png", ".jpg", ".jpeg", ".webp"]:
+        candidate = repo_root / "assets" / f"{stem}{ext}"
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def render_welcome_banner(expand_guide: bool = True) -> None:
+    st.markdown(
+        (
+            '<div class="cgt-hero">'
+            '<div class="cgt-hero-title">⚡ What you can do in 60 seconds</div>'
+            '<div class="cgt-hero-grid">'
+            '<div class="cgt-hero-pill"><strong>📥 Import fast</strong><span>Drop broker CSVs and go.</span></div>'
+            '<div class="cgt-hero-pill"><strong>📊 See tax now</strong><span>Instant current-year summary.</span></div>'
+            '<div class="cgt-hero-pill"><strong>🧾 Prep filings</strong><span>Generate export-ready tax views.</span></div>'
+            '<div class="cgt-hero-pill"><strong>🧠 Model outcomes</strong><span>Run what-if sale scenarios.</span></div>'
+            "</div>"
+            "</div>"
+        ),
+        unsafe_allow_html=True,
+    )
+
+    with st.expander("Step-by-step export guide (DEGIRO + Trading 212)", expanded=expand_guide):
+        repo_root = Path(__file__).resolve().parent.parent
+        degiro_logo = _first_existing_logo(repo_root, "degiro_logo")
+        t212_logo = _first_existing_logo(repo_root, "trading212_logo")
+
+        degiro_html = '<div class="cgt-logo-fallback">DEGIRO</div>'
+        t212_html = '<div class="cgt-logo-fallback">TRADING 212</div>'
+        if degiro_logo is not None:
+            degiro_html = f'<img src="{_logo_data_uri(degiro_logo)}" alt="DEGIRO logo" />'
+        if t212_logo is not None:
+            t212_html = f'<img src="{_logo_data_uri(t212_logo)}" alt="Trading 212 logo" />'
+
+        st.markdown(
+            (
+                '<div class="cgt-platform-grid">'
+                '<div class="cgt-platform-card">'
+                f'<div class="cgt-logo-card">{degiro_html}</div>'
+                '<ol>'
+                '<li>Open DEGIRO and go to Activity &gt; Account statement.</li>'
+                '<li>Set the date range to include all years you want to analyse.</li>'
+                '<li>Export CSV from the statement view.</li>'
+                '<li>Repeat for any additional accounts if needed.</li>'
+                '<li>Upload the CSV in this app under Import your data.</li>'
+                '</ol>'
+                '</div>'
+                '<div class="cgt-platform-card">'
+                f'<div class="cgt-logo-card">{t212_html}</div>'
+                '<ol>'
+                '<li>Open Trading 212 and go to History.</li>'
+                '<li>Use Export to download your account statement as CSV.</li>'
+                '<li>Include all available dates for best tax continuity.</li>'
+                '<li>Keep the original columns unchanged.</li>'
+                '<li>Upload the CSV in this app under Import your data.</li>'
+                '</ol>'
+                '</div>'
+                '</div>'
+                '<div class="cgt-guide-card cgt-guide-checklist">'
+                '<strong>Before uploading</strong>'
+                '<ul>'
+                '<li>Do not edit column names in the CSV.</li>'
+                '<li>Keep decimal separators exactly as exported.</li>'
+                '<li>If you transferred holdings in, add a missing-lots CSV too.</li>'
+                '</ul>'
+                '</div>'
+            ),
+            unsafe_allow_html=True,
+        )
+
+        st.info("After upload: start in Overview to verify current-year values first, then review detailed tabs.")
 
 
 def render_main_sidebar() -> SidebarState:
     with st.sidebar:
         st.markdown("### 1️⃣ Import your data")
         st.caption("Upload one or more broker CSVs to get started.")
+        st.caption("Need help? Follow the step-by-step broker guide on the home page.")
         uploads = st.file_uploader("Broker CSV file(s)", type=["csv"], accept_multiple_files=True, label_visibility="collapsed")
 
-        with st.expander("2️⃣ Add missing lots", expanded=True):
+        with st.expander("2️⃣ Add missing lots", expanded=False):
             st.caption(
                 "Upload a rich transaction CSV with `Date`, `Type`, `ISIN`, `Quantity`, "
                 "and `Price_EUR`/`Unit_EUR` or `Total (EUR)`. `Type` supports Buy and Sell."
@@ -331,27 +584,7 @@ def render_main_sidebar() -> SidebarState:
                     else:
                         st.error("Missing transactions CSV must include `Price_EUR`, `Unit_EUR`, `Total (EUR)`, or `Total_EUR`.")
 
-        with st.expander("3️⃣ Choose summary columns", expanded=False):
-            show_bf_used = st.checkbox("B/F Loss Used (EUR)", value=False)
-            show_ex_used = st.checkbox("Exemption Used (EUR)", value=False)
-            show_carry_fw = st.checkbox("Carry Forward (EUR)", value=False)
-            show_cashflow = st.checkbox("Net Cashflow (EUR)", value=False)
-            show_total_fees = st.checkbox("Total Fees (EUR)", value=False)
-            compact_mode = st.checkbox("Compact table density", value=False)
-
-        with st.expander("4️⃣ Adjust tax settings", expanded=False):
-            use_exemption = st.checkbox("Apply annual CGT exemption (Shares only)", value=True)
-            exemption_val = st.number_input(
-                "Exemption amount (EUR)", min_value=0.0, value=DEFAULT_CGT_EXEMPTION_EUR, step=10.0
-            )
-            cgt_rate_shares = st.number_input(
-                "Shares CGT rate", min_value=0.0, max_value=1.0, value=DEFAULT_CGT_RATE_SHARES, step=0.01
-            )
-            exit_tax_rate_etf = st.number_input(
-                "ETFs Exit Tax rate", min_value=0.0, max_value=1.0, value=DEFAULT_EXIT_TAX_RATE_ETF, step=0.01
-            )
-
-        with st.expander("5️⃣ Add manual transactions", expanded=False):
+        with st.expander("3️⃣ Add manual transactions", expanded=False):
             st.caption(
                 "Add individual buy/sell transactions here. They will be merged with uploaded files "
                 "and included in all calculations (Annual Summary, CGT1 export, etc.)."
@@ -420,17 +653,221 @@ def render_main_sidebar() -> SidebarState:
     return SidebarState(
         uploads=uploads,
         opening_lots_df=opening_lots_df,
-        show_bf_used=show_bf_used,
-        show_ex_used=show_ex_used,
-        show_carry_fw=show_carry_fw,
-        show_cashflow=show_cashflow,
-        show_total_fees=show_total_fees,
-        use_exemption=use_exemption,
-        exemption_val=float(exemption_val),
-        cgt_rate_shares=float(cgt_rate_shares),
-        exit_tax_rate_etf=float(exit_tax_rate_etf),
-        compact_mode=compact_mode,
     )
+
+
+def render_tier_and_settings_menu() -> tuple[TierState, DisplaySettingsState, TaxSettingsState, DividendTaxState]:
+    if "tier_mode" not in st.session_state:
+        st.session_state.tier_mode = "free"
+
+    if "show_bf_used" not in st.session_state:
+        st.session_state.show_bf_used = False
+    if "show_ex_used" not in st.session_state:
+        st.session_state.show_ex_used = False
+    if "show_carry_fw" not in st.session_state:
+        st.session_state.show_carry_fw = False
+    if "show_cashflow" not in st.session_state:
+        st.session_state.show_cashflow = False
+    if "show_total_fees" not in st.session_state:
+        st.session_state.show_total_fees = False
+    if "compact_mode" not in st.session_state:
+        st.session_state.compact_mode = False
+
+    if "use_exemption" not in st.session_state:
+        st.session_state.use_exemption = True
+    if "exemption_val" not in st.session_state:
+        st.session_state.exemption_val = float(DEFAULT_CGT_EXEMPTION_EUR)
+    if "cgt_rate_shares" not in st.session_state:
+        st.session_state.cgt_rate_shares = float(DEFAULT_CGT_RATE_SHARES)
+    if "exit_tax_rate_etf" not in st.session_state:
+        st.session_state.exit_tax_rate_etf = float(DEFAULT_EXIT_TAX_RATE_ETF)
+
+    if "div_tax_income_pct" not in st.session_state:
+        st.session_state.div_tax_income_pct = 40.0
+    if "div_tax_usc_pct" not in st.session_state:
+        st.session_state.div_tax_usc_pct = 8.0
+    if "div_tax_prsi_pct" not in st.session_state:
+        st.session_state.div_tax_prsi_pct = 4.0
+
+    with st.sidebar:
+        st.markdown("---")
+        with st.expander("⚙️ Settings", expanded=False):
+            st.markdown("### Access tier")
+            st.session_state.tier_mode = st.radio(
+                "Tier",
+                options=["free", "paid"],
+                index=0 if st.session_state.tier_mode == "free" else 1,
+                horizontal=True,
+                key="tier_mode_picker",
+                label_visibility="collapsed",
+            )
+
+            st.markdown("### Summary display")
+            st.session_state.show_bf_used = st.checkbox("B/F Loss Used (EUR)", value=bool(st.session_state.show_bf_used))
+            st.session_state.show_ex_used = st.checkbox("Exemption Used (EUR)", value=bool(st.session_state.show_ex_used))
+            st.session_state.show_carry_fw = st.checkbox("Carry Forward (EUR)", value=bool(st.session_state.show_carry_fw))
+            st.session_state.show_cashflow = st.checkbox("Net Cashflow (EUR)", value=bool(st.session_state.show_cashflow))
+            st.session_state.show_total_fees = st.checkbox("Total Fees (EUR)", value=bool(st.session_state.show_total_fees))
+            st.session_state.compact_mode = st.checkbox("Compact table density", value=bool(st.session_state.compact_mode))
+
+            st.markdown("### Tax settings")
+            st.session_state.use_exemption = st.checkbox(
+                "Apply annual CGT exemption (Shares only)", value=bool(st.session_state.use_exemption)
+            )
+            st.session_state.exemption_val = st.number_input(
+                "Exemption amount (EUR)",
+                min_value=0.0,
+                value=float(st.session_state.exemption_val),
+                step=10.0,
+            )
+            st.session_state.cgt_rate_shares = st.number_input(
+                "Shares CGT rate",
+                min_value=0.0,
+                max_value=1.0,
+                value=float(st.session_state.cgt_rate_shares),
+                step=0.01,
+            )
+            st.session_state.exit_tax_rate_etf = st.number_input(
+                "ETFs Exit Tax rate",
+                min_value=0.0,
+                max_value=1.0,
+                value=float(st.session_state.exit_tax_rate_etf),
+                step=0.01,
+            )
+
+            st.markdown("### Dividend tax")
+            preset_options = {
+                "High-rate (40/8/4)": (40.0, 8.0, 4.0),
+                "Standard (20/4/4)": (20.0, 4.0, 4.0),
+                "Custom": None,
+            }
+            preset = st.selectbox("Rate preset", options=list(preset_options.keys()), index=0, key="div_tax_preset")
+            if preset != "Custom":
+                p_income, p_usc, p_prsi = preset_options[preset]
+                st.session_state.div_tax_income_pct = p_income
+                st.session_state.div_tax_usc_pct = p_usc
+                st.session_state.div_tax_prsi_pct = p_prsi
+
+            st.session_state.div_tax_income_pct = st.number_input(
+                "Income tax rate (%)",
+                min_value=0.0,
+                max_value=60.0,
+                value=float(st.session_state.div_tax_income_pct),
+                step=0.5,
+                key="div_tax_income_input",
+            )
+            st.session_state.div_tax_usc_pct = st.number_input(
+                "USC rate (%)",
+                min_value=0.0,
+                max_value=20.0,
+                value=float(st.session_state.div_tax_usc_pct),
+                step=0.1,
+                key="div_tax_usc_input",
+            )
+            st.session_state.div_tax_prsi_pct = st.number_input(
+                "PRSI rate (%)",
+                min_value=0.0,
+                max_value=20.0,
+                value=float(st.session_state.div_tax_prsi_pct),
+                step=0.1,
+                key="div_tax_prsi_input",
+            )
+
+    tier_mode = str(st.session_state.tier_mode).strip().lower()
+    if tier_mode not in {"free", "paid"}:
+        tier_mode = "free"
+    tier_state = TierState(tier=tier_mode, is_paid=(tier_mode == "paid"))
+
+    display_state = DisplaySettingsState(
+        show_bf_used=bool(st.session_state.show_bf_used),
+        show_ex_used=bool(st.session_state.show_ex_used),
+        show_carry_fw=bool(st.session_state.show_carry_fw),
+        show_cashflow=bool(st.session_state.show_cashflow),
+        show_total_fees=bool(st.session_state.show_total_fees),
+        compact_mode=bool(st.session_state.compact_mode),
+    )
+    tax_state = TaxSettingsState(
+        use_exemption=bool(st.session_state.use_exemption),
+        exemption_val=float(st.session_state.exemption_val),
+        cgt_rate_shares=float(st.session_state.cgt_rate_shares),
+        exit_tax_rate_etf=float(st.session_state.exit_tax_rate_etf),
+    )
+    div_state = DividendTaxState(
+        tax_bracket=float(st.session_state.div_tax_income_pct),
+        usc_rate=float(st.session_state.div_tax_usc_pct) / 100.0,
+        prsi_rate=float(st.session_state.div_tax_prsi_pct) / 100.0,
+    )
+    return tier_state, display_state, tax_state, div_state
+
+
+def render_locked_feature(feature_name: str) -> None:
+    st.info(f"{feature_name} is available on the paid tier.")
+    st.markdown(
+        "Upgrade to paid to unlock full history, exports, diagnostics, positions, and what-if analysis."
+    )
+
+
+def mask_historical_years_for_free(df: pd.DataFrame, current_year: int | None) -> pd.DataFrame:
+    if df.empty or current_year is None or "Year" not in df.columns:
+        return df
+
+    masked = df.copy()
+    years = pd.to_numeric(masked["Year"], errors="coerce")
+    mask_rows = years.notna() & years.ne(float(current_year))
+    for col in masked.columns:
+        if col == "Year":
+            continue
+        masked.loc[mask_rows, col] = "Blurred on free tier"
+    return masked
+
+
+def render_dividend_fx_menu(out: pd.DataFrame | None) -> None:
+    detected_currencies: list[str] = []
+    if out is not None and not out.empty:
+        div_rows = out[out["Type"] == "Dividend"].copy()
+        if not div_rows.empty:
+            detected_currencies = div_rows.get("Currency", pd.Series(dtype=object)).dropna().astype(str).str.upper().str.strip().tolist()
+            detected_currencies = [c for c in detected_currencies if c and c not in ["NAN", "NONE"]]
+            detected_currencies = sorted(set(detected_currencies))
+
+    fx_cols = st.columns([8, 2])
+    with fx_cols[1]:
+        with st.popover("💱 FX Rates", use_container_width=True):
+            st.caption("Used by dividend tax estimation for non-EUR dividends.")
+            non_eur_detected = [c for c in detected_currencies if c != "EUR"]
+
+            for curr in non_eur_detected:
+                default_rate = float(st.session_state.fx_rates_manual.get(curr, 1.0))
+                fx_input = st.number_input(
+                    f"{curr} → EUR",
+                    min_value=0.01,
+                    value=default_rate,
+                    step=0.01,
+                    format="%.4f",
+                    key=f"fx_rate_menu_{curr}",
+                )
+                st.session_state.fx_rates_manual[curr] = fx_input
+
+            if not non_eur_detected:
+                st.caption("No non-EUR dividends detected in current data.")
+
+            custom_ccy = st.text_input(
+                "Add custom currency code",
+                value="",
+                placeholder="e.g. USD",
+                key="fx_menu_custom_ccy",
+            ).strip().upper()
+            if custom_ccy and re.fullmatch(r"[A-Z]{3}", custom_ccy) and custom_ccy != "EUR":
+                default_rate = float(st.session_state.fx_rates_manual.get(custom_ccy, 1.0))
+                fx_input_custom = st.number_input(
+                    f"{custom_ccy} → EUR (manual)",
+                    min_value=0.01,
+                    value=default_rate,
+                    step=0.01,
+                    format="%.4f",
+                    key=f"fx_rate_menu_custom_{custom_ccy}",
+                )
+                st.session_state.fx_rates_manual[custom_ccy] = fx_input_custom
 
 
 def render_dividend_tax_sidebar(out: pd.DataFrame | None) -> DividendTaxState:

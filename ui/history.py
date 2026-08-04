@@ -17,11 +17,18 @@ def render_transaction_history(
     fmt_qty: Callable[[Any], str],
     fmt_money: Callable[[Any], str],
     fmt_money_eur: Callable[[Any], str],
+    is_paid: bool = True,
+    current_year: int | None = None,
 ) -> None:
     st.markdown("### 📜 Transaction History")
 
     years = years_sorted
-    year_options = ["All"] + years
+    if is_paid:
+        year_options = ["All"] + years
+    else:
+        year_options = [current_year] if current_year is not None else years
+    if not year_options:
+        year_options = ["All"]
 
     asset_unique = sorted(out.get("Asset", pd.Series([], dtype="object")).dropna().astype(str).str.lower().unique().tolist())
     asset_options = ["All"] + [a.title() if a != "etf" else "ETF" for a in asset_unique]

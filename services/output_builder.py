@@ -6,6 +6,104 @@ from typing import Callable, Dict, List, Optional, Tuple
 import numpy as np
 import pandas as pd
 
+from core.matching import Lot, match_disposal
+
+
+def _buy_unit_cost_eur(row: pd.Series, qty: float) -> float:
+    unit = row.get("Price_EUR", np.nan)
+    if pd.isna(unit) or unit == 0:
+        tefa = row.get("Total_EUR_FeeAdj", np.nan)
+        if pd.isna(tefa):
+            tefa = row.get("Total_EUR", np.nan)
+        if pd.isna(tefa):
+            tefa = abs(float(row.get("_CashValue", 0.0) or 0.0))
+        if not pd.isna(tefa) and abs(qty) > 0:
+            unit = float(tefa) / abs(qty)
+    return float(unit) if not pd.isna(unit) and unit > 0 else np.nan
+
+
+def _sell_proceeds_eur(row: pd.Series) -> float:
+    proceeds = row.get("Total_EUR_FeeAdj", np.nan)
+    if pd.isna(proceeds):
+        proceeds = row.get("Total_EUR", np.nan)
+    if pd.isna(proceeds):
+        proceeds = abs(float(row.get("_CashValue", 0.0) or 0.0))
+    return proceeds
+
+
+def _is_share_isin_group(rows: pd.DataFrame) -> bool:
+    if "Asset" not in rows.columns:
+        return False
+    return rows["Asset"].astype(str).str.lower().eq("share").any()
+
+
+def _fifo_plain(consolidated: pd.DataFrame, idx, gl: np.ndarray) -> None:
+    """Plain chronological FIFO — used for ETFs (Exit Tax), which are not subject to S.581."""
+    open_lots: List[List[float]] = []  # each item: [qty_remaining (positive), unit_cost_eur]
+
+    for i in idx:
+        row = consolidated.loc[i]
+        t = str(row.get("Type", ""))
+
+        if t == "Buy":
+            qty = float(row.get("Quantity_signed", 0.0) or 0.0)
+            if qty > 0:
+                unit = _buy_unit_cost_eur(row, qty)
+                if not pd.isna(unit):
+                    open_lots.append([qty, unit])
+
+        elif t == "Sell":
+            qty_to_match = abs(float(row.get("Quantity_signed", 0.0) or 0.0))
+            cost = 0.0
+
+            j = 0
+            while qty_to_match > 0 and j < len(open_lots):
+                lot_qty, lot_unit = open_lots[j]
+                take = min(qty_to_match, lot_qty)
+                cost += take * lot_unit
+                lot_qty -= take
+                qty_to_match -= take
+
+                if lot_qty <= 1e-12:
+                    open_lots.pop(j)
+                else:
+                    open_lots[j][0] = lot_qty
+                    j += 1
+
+            proceeds = _sell_proceeds_eur(row)
+            gl[i] = float(proceeds) - float(cost) if not pd.isna(proceeds) else np.nan
+
+
+def _fifo_shares_same_day_bnb(consolidated: pd.DataFrame, idx, gl: np.ndarray) -> None:
+    """Same-day, then 4-week bed & breakfast, then FIFO — per S.580/S.581 TCA 1997."""
+    lots: List[Lot] = []
+    sell_rows: List[int] = []
+
+    for i in idx:
+        row = consolidated.loc[i]
+        t = str(row.get("Type", ""))
+
+        if t == "Buy":
+            qty = float(row.get("Quantity_signed", 0.0) or 0.0)
+            if qty > 0:
+                unit = _buy_unit_cost_eur(row, qty)
+                if not pd.isna(unit):
+                    lots.append(Lot(date=pd.Timestamp(row["Date"]).normalize(), qty=qty, unit_cost=unit))
+
+        elif t == "Sell":
+            sell_rows.append(i)
+
+    # Sells are already in chronological order (consolidated is pre-sorted by Date),
+    # so earlier disposals get first claim on same-day/B&B acquisitions.
+    for i in sell_rows:
+        row = consolidated.loc[i]
+        qty_to_match = abs(float(row.get("Quantity_signed", 0.0) or 0.0))
+        sell_date = pd.Timestamp(row["Date"]).normalize()
+        cost = match_disposal(sell_date, qty_to_match, lots)
+
+        proceeds = _sell_proceeds_eur(row)
+        gl[i] = float(proceeds) - float(cost) if not pd.isna(proceeds) else np.nan
+
 
 def consolidate_fifo(grouped: pd.DataFrame) -> pd.DataFrame:
     # Defensive: ensure __row_id exists
@@ -17,66 +115,16 @@ def consolidate_fifo(grouped: pd.DataFrame) -> pd.DataFrame:
         ["ISIN", "Date", "Order ID", "__type_sort", "__row_id"], kind="mergesort"
     ).reset_index(drop=True)
 
-    # --- FIFO Gain/Loss (EUR) for sells using a running lot ledger (per ISIN) ---
+    # --- Gain/Loss (EUR) for sells using a per-ISIN lot ledger ---
     # Uses fee-adjusted proceeds and fee-adjusted buy cost
     gl = np.full(len(consolidated), np.nan)  # index-aligned result array
 
     # Work instrument-by-instrument in chronological order
     for _, idx in consolidated.groupby("ISIN", sort=False).groups.items():
-        open_lots = []  # each item: [qty_remaining (positive), unit_cost_eur]
-
-        for i in idx:
-            row = consolidated.loc[i]
-            t = str(row.get("Type", ""))
-
-            if t == "Buy":
-                qty = float(row.get("Quantity_signed", 0.0) or 0.0)  # buys are +ve in your pipeline
-                if qty > 0:
-                    unit = row.get("Price_EUR", np.nan)
-
-                    # Fallback if unit EUR is missing
-                    if pd.isna(unit) or unit == 0:
-                        tefa = row.get("Total_EUR_FeeAdj", np.nan)
-                        if pd.isna(tefa):
-                            tefa = row.get("Total_EUR", np.nan)
-                        if pd.isna(tefa):
-                            tefa = abs(float(row.get("_CashValue", 0.0) or 0.0))
-                        if not pd.isna(tefa) and abs(qty) > 0:
-                            unit = float(tefa) / abs(qty)
-
-                    if not pd.isna(unit) and unit > 0:
-                        open_lots.append([qty, float(unit)])
-
-            elif t == "Sell":
-                qty_to_match = abs(float(row.get("Quantity_signed", 0.0) or 0.0))
-                cost = 0.0
-
-                # Consume from FIFO lots
-                j = 0
-                while qty_to_match > 0 and j < len(open_lots):
-                    lot_qty, lot_unit = open_lots[j]
-                    take = min(qty_to_match, lot_qty)
-                    cost += take * lot_unit
-                    lot_qty -= take
-                    qty_to_match -= take
-
-                    if lot_qty <= 1e-12:
-                        # lot fully consumed
-                        open_lots.pop(j)
-                    else:
-                        open_lots[j][0] = lot_qty
-                        j += 1
-
-                # Proceeds (fee-adjusted if available)
-                proceeds = row.get("Total_EUR_FeeAdj", np.nan)
-                if pd.isna(proceeds):
-                    proceeds = row.get("Total_EUR", np.nan)
-                if pd.isna(proceeds):
-                    proceeds = abs(float(row.get("_CashValue", 0.0) or 0.0))
-
-                gl[i] = float(proceeds) - float(cost) if not pd.isna(proceeds) else np.nan
-
-            # other row types (dividends/fees/corp actions) leave gl[i] as NaN
+        if _is_share_isin_group(consolidated.loc[idx]):
+            _fifo_shares_same_day_bnb(consolidated, idx, gl)
+        else:
+            _fifo_plain(consolidated, idx, gl)
 
     consolidated["Gain/Loss"] = gl
 

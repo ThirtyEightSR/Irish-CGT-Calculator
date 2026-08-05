@@ -11,8 +11,8 @@ from core.tax import TaxConfig, build_annual_summary
 from core.deemed_disposal import _eight_year_anniversary
 from core.deemed_disposal import deemed_plan_and_estimates
 from core.reports import build_cgt1_export, build_form12_export
-from core.what_if import carry_forward_shares_to_year, fifo_cost_for_sale
-from services.output_builder import build_out_table
+from core.what_if import carry_forward_shares_to_year, fifo_cost_for_sale, replay_fifo_lots_all
+from services.output_builder import build_out_table, consolidate_fifo
 from services.pipeline import run_output_pipeline
 from services.corporate_actions import build_output
 from ui.reconciliation import build_tax_reconciliation_frame
@@ -66,6 +66,126 @@ def test_fifo_cost_caps_to_available_lots() -> None:
     )
     # Asking for cost of 15 should only consume 10 held units.
     assert fifo_cost_for_sale(out, "IE00TEST12345", 15.0) == 100.0
+
+
+def test_same_day_matching_prefers_same_day_lot_over_older_fifo_lot() -> None:
+    grouped = pd.DataFrame(
+        {
+            "ISIN": ["IE00TEST99999"] * 3,
+            "Date": [
+                pd.Timestamp("2024-01-01"),
+                pd.Timestamp("2024-02-01"),
+                pd.Timestamp("2024-02-01"),
+            ],
+            "Order ID": ["A", "B", "C"],
+            "Type": ["Buy", "Buy", "Sell"],
+            "__type_sort": [0, 0, 1],
+            "Asset": ["share", "share", "share"],
+            "Quantity_signed": [10.0, 5.0, -5.0],
+            "Price_EUR": [10.0, 20.0, None],
+            "Total_EUR_FeeAdj": [100.0, 100.0, 150.0],
+        }
+    )
+    out = consolidate_fifo(grouped)
+    sell_gl = out.loc[out["Type"].eq("Sell"), "Gain/Loss"].iloc[0]
+    # Must match against the same-day Feb buy (cost 100), not the cheaper Jan lot.
+    assert sell_gl == 50.0
+
+
+def test_bed_and_breakfast_matches_future_repurchase_within_28_days() -> None:
+    grouped = pd.DataFrame(
+        {
+            "ISIN": ["IE00TEST88888"] * 3,
+            "Date": [
+                pd.Timestamp("2024-01-01"),
+                pd.Timestamp("2024-06-01"),
+                pd.Timestamp("2024-06-15"),
+            ],
+            "Order ID": ["A", "B", "C"],
+            "Type": ["Buy", "Sell", "Buy"],
+            "__type_sort": [0, 1, 0],
+            "Asset": ["share", "share", "share"],
+            "Quantity_signed": [10.0, -10.0, 10.0],
+            "Price_EUR": [10.0, None, 25.0],
+            "Total_EUR_FeeAdj": [100.0, 200.0, 250.0],
+        }
+    )
+    out = consolidate_fifo(grouped)
+    sell_gl = out.loc[out["Type"].eq("Sell"), "Gain/Loss"].iloc[0]
+    # The repurchase 14 days later (inside the 28-day B&B window) must be used as
+    # the cost basis instead of the older, cheaper Jan lot.
+    assert sell_gl == -50.0
+
+
+def test_disposal_falls_back_to_fifo_when_repurchase_is_outside_bnb_window() -> None:
+    grouped = pd.DataFrame(
+        {
+            "ISIN": ["IE00TEST77777"] * 3,
+            "Date": [
+                pd.Timestamp("2024-01-01"),
+                pd.Timestamp("2024-06-01"),
+                pd.Timestamp("2024-07-15"),  # 44 days later - outside the 28-day window
+            ],
+            "Order ID": ["A", "B", "C"],
+            "Type": ["Buy", "Sell", "Buy"],
+            "__type_sort": [0, 1, 0],
+            "Asset": ["share", "share", "share"],
+            "Quantity_signed": [10.0, -10.0, 10.0],
+            "Price_EUR": [10.0, None, 25.0],
+            "Total_EUR_FeeAdj": [100.0, 200.0, 250.0],
+        }
+    )
+    out = consolidate_fifo(grouped)
+    sell_gl = out.loc[out["Type"].eq("Sell"), "Gain/Loss"].iloc[0]
+    assert sell_gl == 100.0
+
+
+def test_etf_disposal_ignores_bed_and_breakfast_and_uses_plain_fifo() -> None:
+    grouped = pd.DataFrame(
+        {
+            "ISIN": ["IE00ETF00000"] * 3,
+            "Date": [
+                pd.Timestamp("2024-01-01"),
+                pd.Timestamp("2024-06-01"),
+                pd.Timestamp("2024-06-15"),
+            ],
+            "Order ID": ["A", "B", "C"],
+            "Type": ["Buy", "Sell", "Buy"],
+            "__type_sort": [0, 1, 0],
+            "Asset": ["etf", "etf", "etf"],
+            "Quantity_signed": [10.0, -10.0, 10.0],
+            "Price_EUR": [10.0, None, 25.0],
+            "Total_EUR_FeeAdj": [100.0, 200.0, 250.0],
+        }
+    )
+    out = consolidate_fifo(grouped)
+    sell_gl = out.loc[out["Type"].eq("Sell"), "Gain/Loss"].iloc[0]
+    # Exit Tax (ETF) disposals are not subject to S.580/S.581 share-matching rules.
+    assert sell_gl == 100.0
+
+
+def test_replay_fifo_lots_prefers_bed_and_breakfast_repurchase_for_shares() -> None:
+    out = pd.DataFrame(
+        {
+            "ISIN": ["IE00TEST66666"] * 3,
+            "Date": [
+                pd.Timestamp("2024-01-01"),
+                pd.Timestamp("2024-06-01"),
+                pd.Timestamp("2024-06-15"),
+            ],
+            "Type": ["Buy", "Sell", "Buy"],
+            "Asset": ["share", "share", "share"],
+            "Quantity": [10.0, 10.0, 10.0],
+            "Price_EUR": [10.0, 20.0, 25.0],
+            "Description": ["Buy 10 TEST @10 EUR", "Sell 10 TEST @20 EUR", "Buy 10 TEST @25 EUR"],
+        }
+    )
+    lots = replay_fifo_lots_all(out).get("IE00TEST66666", [])
+    # The Jan lot should remain fully open; the sale should have consumed the
+    # June 15 repurchase (bed & breakfast) instead.
+    assert len(lots) == 1
+    assert lots[0]["acq"] == pd.Timestamp("2024-01-01")
+    assert lots[0]["qty"] == 10.0
 
 
 def test_deemed_disposal_leap_day_anniversary_stays_in_february() -> None:

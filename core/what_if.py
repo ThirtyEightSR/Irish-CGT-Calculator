@@ -6,6 +6,8 @@ from typing import Dict, List
 import numpy as np
 import pandas as pd
 
+from core.matching import Lot, match_disposal
+
 
 ETF_PROVIDERS = [
     "vanguard",
@@ -101,7 +103,11 @@ def replay_fifo_lots_all(out_df: pd.DataFrame) -> Dict[str, List[Dict]]:
 
     lots_by_isin: Dict[str, List[Dict]] = {}
     for isin, g in df.groupby("ISIN", sort=False):
-        lots: List[Dict] = []
+        is_etf = bool(g.apply(_is_exit_tax_asset_row, axis=1).any())
+
+        raw_lots: List[Dict] = []
+        sells: List[tuple] = []
+
         for _, r in g.iterrows():
             t = str(r["Type"])
             q = float(r["__qty_for_fifo"]) if pd.notna(r["__qty_for_fifo"]) else 0.0
@@ -126,7 +132,7 @@ def replay_fifo_lots_all(out_df: pd.DataFrame) -> Dict[str, List[Dict]]:
                         unit_native = uc_eur / fx
                     ccy = str(r.get("FXCCY") or "").strip().upper()
 
-                lots.append(
+                raw_lots.append(
                     {
                         "acq": r["Date"],
                         "qty": q,
@@ -136,7 +142,13 @@ def replay_fifo_lots_all(out_df: pd.DataFrame) -> Dict[str, List[Dict]]:
                     }
                 )
             else:
-                qty_to_sell = q
+                sells.append((pd.Timestamp(r["Date"]).normalize(), q))
+
+        if is_etf:
+            # Exit Tax (ETF) lots are not subject to S.580/S.581 share-matching
+            # rules — plain chronological FIFO, same as before.
+            lots = raw_lots
+            for sell_date, qty_to_sell in sells:
                 j = 0
                 while qty_to_sell > 1e-12 and j < len(lots):
                     take = min(lots[j]["qty"], qty_to_sell)
@@ -145,7 +157,24 @@ def replay_fifo_lots_all(out_df: pd.DataFrame) -> Dict[str, List[Dict]]:
                     if lots[j]["qty"] <= 1e-12:
                         j += 1
                 lots = [L for L in lots if L["qty"] > 1e-12]
-        lots_by_isin[str(isin)] = lots
+            lots_by_isin[str(isin)] = lots
+        else:
+            # Shares: same-day, then 4-week bed & breakfast, then FIFO (S.580/S.581).
+            lot_objs = [
+                Lot(
+                    date=pd.Timestamp(L["acq"]).normalize(),
+                    qty=L["qty"],
+                    unit_cost=L["unit_cost_eur"] if pd.notna(L["unit_cost_eur"]) else 0.0,
+                )
+                for L in raw_lots
+            ]
+            for sell_date, qty_to_sell in sells:
+                match_disposal(sell_date, qty_to_sell, lot_objs)
+
+            for raw, lot in zip(raw_lots, lot_objs):
+                raw["qty"] = lot.qty
+
+            lots_by_isin[str(isin)] = [L for L in raw_lots if L["qty"] > 1e-12]
     return lots_by_isin
 
 

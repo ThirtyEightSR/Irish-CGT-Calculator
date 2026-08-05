@@ -270,6 +270,57 @@ def inject_global_styles() -> None:
             margin-top: 0.2rem;
         }
 
+        .cgt-trust-grid {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 0.55rem;
+            margin: 0.1rem 0 0.75rem 0;
+        }
+
+        .cgt-trust-card {
+            background: #ffffff;
+            border: 1px solid #d8e1ec;
+            border-radius: 12px;
+            padding: 0.62rem 0.7rem;
+            box-shadow: 0 1px 0 rgba(10, 30, 60, 0.03);
+        }
+
+        .cgt-trust-card strong {
+            display: block;
+            color: #1e3d60;
+            font-size: 0.86rem;
+            margin-bottom: 0.12rem;
+        }
+
+        .cgt-trust-card p {
+            margin: 0;
+            color: #44607d;
+            font-size: 0.77rem;
+            line-height: 1.33;
+        }
+
+        .cgt-method-card {
+            background: linear-gradient(135deg, #f8fbff 0%, #edf4ff 100%);
+            border: 1px solid #d6e3f3;
+            border-radius: 12px;
+            padding: 0.72rem 0.8rem;
+            margin-bottom: 0.65rem;
+        }
+
+        .cgt-method-card h4 {
+            margin: 0 0 0.28rem 0;
+            color: #1d3f64;
+            font-size: 0.9rem;
+        }
+
+        .cgt-method-card ul {
+            margin: 0;
+            padding-left: 1.02rem;
+            color: #365575;
+            font-size: 0.79rem;
+            line-height: 1.35;
+        }
+
         @media (max-width: 900px) {
             .cgt-section-intro {
                 padding: 0.55rem 0.7rem;
@@ -363,6 +414,37 @@ def inject_global_styles() -> None:
             .cgt-platform-grid {
                 gap: 0.5rem;
                 grid-template-columns: 1fr;
+            }
+
+            .cgt-trust-grid {
+                grid-template-columns: 1fr;
+                gap: 0.45rem;
+                margin-bottom: 0.62rem;
+            }
+
+            .cgt-trust-card {
+                padding: 0.56rem 0.6rem;
+            }
+
+            .cgt-trust-card strong {
+                font-size: 0.8rem;
+            }
+
+            .cgt-trust-card p {
+                font-size: 0.73rem;
+            }
+
+            .cgt-method-card {
+                padding: 0.6rem 0.64rem;
+                margin-bottom: 0.55rem;
+            }
+
+            .cgt-method-card h4 {
+                font-size: 0.82rem;
+            }
+
+            .cgt-method-card ul {
+                font-size: 0.74rem;
             }
 
             .cgt-platform-card {
@@ -517,7 +599,7 @@ def render_welcome_banner(expand_guide: bool = True) -> None:
     st.markdown(
         (
             '<div class="cgt-hero">'
-            '<div class="cgt-hero-title">⚡ What you can do in 60 seconds</div>'
+            '<div class="cgt-hero-title">⚡ Irish CGT in 60 seconds</div>'
             '<div class="cgt-hero-grid">'
             '<div class="cgt-hero-pill"><strong>📥 Import fast</strong><span>Drop broker CSVs and go.</span></div>'
             '<div class="cgt-hero-pill"><strong>📊 See tax now</strong><span>Instant current-year summary.</span></div>'
@@ -529,7 +611,46 @@ def render_welcome_banner(expand_guide: bool = True) -> None:
         unsafe_allow_html=True,
     )
 
-    with st.expander("Step-by-step export guide (DEGIRO + Trading 212)", expanded=expand_guide):
+    st.markdown(
+        (
+            '<div class="cgt-trust-grid">'
+            '<div class="cgt-trust-card">'
+            '<strong>✅ Rule-based matching</strong>'
+            '<p>Shares use same-day, then 4-week bed and breakfast, then FIFO. ETF/Exit Tax logic is handled separately.</p>'
+            '</div>'
+            '<div class="cgt-trust-card">'
+            '<strong>🔒 No customer data storage</strong>'
+            '<p>No accounts, no database, and no sync. Data is used in-session only and cleared when the app session ends.</p>'
+            '</div>'
+            '<div class="cgt-trust-card">'
+            '<strong>🧪 Tested calculations</strong>'
+            '<p>Automated regression tests cover matching rules, FX diagnostics, deemed disposal, and export consistency.</p>'
+            '</div>'
+            '<div class="cgt-trust-card">'
+            '<strong>📄 Filing outputs included</strong>'
+            '<p>CGT1/Form 12 exports, annual summaries, dividend tax settings, and reconciliation diagnostics are built in.</p>'
+            '</div>'
+            '</div>'
+        ),
+        unsafe_allow_html=True,
+    )
+
+    st.markdown(
+        (
+            '<div class="cgt-method-card">'
+            '<h4>Methodology at a glance</h4>'
+            '<ul>'
+            '<li>Share disposals: same-day → 4-week bed & breakfast → FIFO.</li>'
+            '<li>ETF/Fund disposals: Exit Tax and deemed-disposal workflows supported.</li>'
+            '<li>Tax computation: annual exemption, loss carry-forward, configurable CGT/Exit/DIRT rates.</li>'
+            '<li>Verification tools: FX anomaly checks and per-year tax reconciliation.</li>'
+            '</ul>'
+            '</div>'
+        ),
+        unsafe_allow_html=True,
+    )
+
+    with st.expander("Step-by-step export guide (DEGIRO + Trading 212 + Revolut)", expanded=expand_guide):
         repo_root = Path(__file__).resolve().parent.parent
         degiro_logo = _first_existing_logo(repo_root, "degiro_logo")
         t212_logo = _first_existing_logo(repo_root, "trading212_logo")
@@ -570,6 +691,7 @@ def render_welcome_banner(expand_guide: bool = True) -> None:
                 '<ul>'
                 '<li>Do not edit column names in the CSV.</li>'
                 '<li>Keep decimal separators exactly as exported.</li>'
+                '<li>Revolut stock statements are supported in CSV format.</li>'
                 '<li>If you transferred holdings in, add a missing-lots CSV too.</li>'
                 '</ul>'
                 '</div>'

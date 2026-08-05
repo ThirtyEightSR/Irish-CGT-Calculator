@@ -5,7 +5,7 @@ from typing import Optional
 
 import pandas as pd
 
-from core.settings import DEFAULT_CGT_EXEMPTION_EUR, DEFAULT_CGT_RATE_SHARES, DEFAULT_EXIT_TAX_RATE_ETF
+from core.settings import DEFAULT_CGT_EXEMPTION_EUR, DEFAULT_CGT_RATE_SHARES, DEFAULT_DIRT_RATE_DEPOSIT, DEFAULT_EXIT_TAX_RATE_ETF
 
 
 @dataclass(frozen=True)
@@ -14,6 +14,7 @@ class TaxConfig:
     exemption_val: float = DEFAULT_CGT_EXEMPTION_EUR
     cgt_rate_shares: float = DEFAULT_CGT_RATE_SHARES
     exit_tax_rate_etf: float = DEFAULT_EXIT_TAX_RATE_ETF
+    dirt_rate_deposit: float = DEFAULT_DIRT_RATE_DEPOSIT
 
 
 def _sum_mask_local(df: pd.DataFrame, mask: pd.Series, col: str) -> float:
@@ -59,6 +60,7 @@ def build_annual_summary(
             )
             interest_eur = _sum_mask_local(g, g["Type"].eq("Interest"), "Total")
             realised_pl = _sum_mask_local(g, g["Type"].eq("Sell"), "Gain/Loss")
+            dirt_tax = max(0.0, interest_eur) * config.dirt_rate_deposit
 
             bf_used = 0.0
             if realised_pl > 0 and carry_forward_prev_shares > 0:
@@ -84,6 +86,8 @@ def build_annual_summary(
                 "Realised Profit / Loss (EUR)": realised_pl,
                 "Taxable Gain (EUR)": taxable_gain,
                 f"Tax @ {int(config.cgt_rate_shares*100)}% (EUR)": tax_due,
+                "Deposit Interest (EUR)": interest_eur,
+                f"Tax @ DIRT {int(config.dirt_rate_deposit*100)}% (EUR)": dirt_tax,
                 "B/F Loss Used (EUR)": bf_used,
                 "Exemption Used (EUR)": ex_used,
                 "Carry Forward (EUR)": carry_forward_new,
@@ -102,6 +106,7 @@ def build_annual_summary(
             )
             interest_eur = _sum_mask_local(g, g["Type"].eq("Interest"), "Total")
             realised_pl = _sum_mask_local(g, g["Type"].eq("Sell"), "Gain/Loss")
+            dirt_tax = max(0.0, interest_eur) * config.dirt_rate_deposit
 
             taxable_gain = max(0.0, realised_pl)
             tax_due = taxable_gain * config.exit_tax_rate_etf
@@ -113,6 +118,8 @@ def build_annual_summary(
                 "Realised Profit / Loss (EUR)": realised_pl,
                 "Taxable Gain (EUR)": taxable_gain,
                 f"Tax @ {int(config.exit_tax_rate_etf*100)}% (EUR)": tax_due,
+                "Deposit Interest (EUR)": interest_eur,
+                f"Tax @ DIRT {int(config.dirt_rate_deposit*100)}% (EUR)": dirt_tax,
                 "Net Cashflow (EUR)": sells_eur - buys_eur + div_net_eur + interest_eur - fees_eur,
                 "Total Fees (EUR)": _sum_mask_local(g, g["Type"].isin(["Fee", "Interest"]), "Fee"),
             }
@@ -129,6 +136,7 @@ def build_annual_summary(
                 g_all, g_all["Type"].eq("Dividend"), "Fee"
             )
             interest_eur_all = _sum_mask_local(g_all, g_all["Type"].eq("Interest"), "Total")
+            dirt_tax_all = max(0.0, interest_eur_all) * config.dirt_rate_deposit
 
             realised_shares = _sum_mask_local(g_shares, g_shares["Type"].eq("Sell"), "Gain/Loss")
             realised_etfs = _sum_mask_local(g_etfs, g_etfs["Type"].eq("Sell"), "Gain/Loss")
@@ -160,7 +168,9 @@ def build_annual_summary(
                 "Realised Profit / Loss (EUR)": realised_shares + realised_etfs,
                 f"Tax @ Shares {int(config.cgt_rate_shares*100)}% (EUR)": tax_shares,
                 f"Tax @ ETFs {int(config.exit_tax_rate_etf*100)}% (EUR)": tax_etfs,
-                "Tax @ Combined (EUR)": tax_shares + tax_etfs,
+                "Deposit Interest (EUR)": interest_eur_all,
+                f"Tax @ DIRT {int(config.dirt_rate_deposit*100)}% (EUR)": dirt_tax_all,
+                "Tax @ Combined (EUR)": tax_shares + tax_etfs + dirt_tax_all,
                 "B/F Loss Used (EUR)": bf_used,
                 "Exemption Used (EUR)": ex_used,
                 "Carry Forward (EUR)": carry_forward_new,

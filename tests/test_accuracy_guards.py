@@ -12,6 +12,8 @@ from core.deemed_disposal import _eight_year_anniversary
 from core.deemed_disposal import deemed_plan_and_estimates
 from core.reports import build_cgt1_export, build_form12_export
 from core.what_if import carry_forward_shares_to_year, fifo_cost_for_sale, replay_fifo_lots_all
+from adapters.brokers import detect_broker_from_headers, parse_revolut_csv
+from adapters.manual_transactions import _manual_transactions_to_canonical
 from services.output_builder import build_out_table, consolidate_fifo
 from services.pipeline import run_output_pipeline
 from services.corporate_actions import build_output
@@ -49,6 +51,107 @@ def test_carry_forward_handles_missing_gain_loss_column() -> None:
         }
     )
     assert carry_forward_shares_to_year(df, 2025, True, 1270.0) == 0.0
+
+
+def test_combined_summary_includes_dirt_tax_on_interest() -> None:
+    df = pd.DataFrame(
+        {
+            "__year": [2025, 2025],
+            "Asset": ["share", "share"],
+            "Type": ["Interest", "Sell"],
+            "Total (EUR)": [100.0, 1000.0],
+            "Fee": [0.0, 0.0],
+            "Total": [100.0, 1000.0],
+            "Gain/Loss": [None, 300.0],
+        }
+    )
+
+    out = build_annual_summary(df, None, [2025], TaxConfig(use_exemption=False, dirt_rate_deposit=0.33))
+    assert not out.empty
+    assert float(out.loc[0, "Deposit Interest (EUR)"]) == 100.0
+    assert float(out.loc[0, "Tax @ DIRT 33% (EUR)"]) == 33.0
+    assert float(out.loc[0, "Tax @ Combined (EUR)"]) == 132.0
+
+
+def test_manual_rsu_espp_entries_are_tagged_in_description() -> None:
+    rows = _manual_transactions_to_canonical(
+        [
+            {
+                "Date": pd.Timestamp("2025-03-01"),
+                "Type": "Buy",
+                "ISIN": "US0000000001",
+                "Product": "Example Corp",
+                "Quantity": 10.0,
+                "Unit_Price_EUR": 15.0,
+                "Fees": 0.0,
+                "Total_EUR": 150.0,
+                "Manual_Label": "RSU Vest",
+            },
+            {
+                "Date": pd.Timestamp("2025-04-01"),
+                "Type": "Buy",
+                "ISIN": "US0000000002",
+                "Product": "Another Corp",
+                "Quantity": 5.0,
+                "Unit_Price_EUR": 20.0,
+                "Fees": 1.0,
+                "Total_EUR": 101.0,
+                "Manual_Label": "ESPP Purchase",
+            },
+        ]
+    )
+
+    assert len(rows) == 2
+    assert "[RSU Vest]" in str(rows.loc[0, "Description"])
+    assert "[ESPP Purchase]" in str(rows.loc[1, "Description"])
+
+
+def test_detect_broker_identifies_revolut_headers() -> None:
+    df_head = pd.DataFrame(
+        columns=["Date", "Type", "Ticker", "ISIN", "Quantity", "Price", "Amount", "Currency"]
+    )
+    assert detect_broker_from_headers(df_head) == "REVOLUT"
+
+
+def test_parse_revolut_csv_outputs_canonical_rows() -> None:
+    df_raw = pd.DataFrame(
+        {
+            "Date": ["2025-01-02", "2025-02-01", "2025-02-01"],
+            "Type": ["Buy", "Sell", "Dividend"],
+            "Ticker": ["AAPL", "AAPL", "AAPL"],
+            "Instrument": ["Apple Inc", "Apple Inc", "Apple Inc"],
+            "ISIN": ["US0378331005", "US0378331005", "US0378331005"],
+            "Quantity": [2, 1, None],
+            "Price": [150.0, 160.0, None],
+            "Amount": [300.0, 160.0, 5.0],
+            "Withholding tax": [None, None, 1.0],
+            "Currency": ["USD", "USD", "USD"],
+            "Order ID": ["OID-BUY-1", "OID-SELL-1", "OID-DIV-1"],
+        }
+    )
+
+    out = parse_revolut_csv(df_raw)
+    assert not out.empty
+    required = {
+        "Date",
+        "Time",
+        "Value date",
+        "Product",
+        "ISIN",
+        "Description",
+        "FX",
+        "Change",
+        "Cash Movements",
+        "Balance",
+        "Order ID",
+        "Currency",
+    }
+    assert required.issubset(set(out.columns))
+
+    assert (out["Description"].astype(str).str.startswith("Buy")).any()
+    assert (out["Description"].astype(str).str.startswith("Sell")).any()
+    assert out["Description"].astype(str).eq("Dividend").any()
+    assert out["Description"].astype(str).eq("Dividend Tax").any()
 
 
 

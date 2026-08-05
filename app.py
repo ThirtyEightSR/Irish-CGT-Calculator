@@ -181,6 +181,7 @@ use_exemption = tax_settings.use_exemption
 exemption_val = tax_settings.exemption_val
 cgt_rate_shares = tax_settings.cgt_rate_shares
 exit_tax_rate_etf = tax_settings.exit_tax_rate_etf
+dirt_rate_deposit = tax_settings.dirt_rate_deposit
 
 inject_density_mode_styles(compact_mode)
 
@@ -281,6 +282,7 @@ tax_cfg = TaxConfig(
     exemption_val=exemption_val,
     cgt_rate_shares=cgt_rate_shares,
     exit_tax_rate_etf=exit_tax_rate_etf,
+    dirt_rate_deposit=dirt_rate_deposit,
 )
 
 summary_shares = build_annual_summary(df_sum, "share", years_sorted, tax_cfg)

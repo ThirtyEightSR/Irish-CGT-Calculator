@@ -44,6 +44,9 @@ def build_tax_reconciliation_frame(
     etf_taxable = _by_year(summary_etfs, "Taxable Gain (EUR)")
     etf_tax = _by_year(summary_etfs, etf_tax_col)
 
+    dirt_tax_col = next((c for c in summary_combined.columns if c.startswith("Tax @ DIRT ")), None)
+    dirt_tax = _by_year(summary_combined, dirt_tax_col) if dirt_tax_col else pd.Series(dtype="float64")
+
     combined_tax_reported = _by_year(summary_combined, "Tax @ Combined (EUR)")
 
     year_index = sorted(
@@ -55,6 +58,7 @@ def build_tax_reconciliation_frame(
         | set(etf_pl.index.tolist())
         | set(etf_taxable.index.tolist())
         | set(etf_tax.index.tolist())
+        | set(dirt_tax.index.tolist())
         | set(combined_tax_reported.index.tolist())
     )
     if not year_index:
@@ -70,8 +74,14 @@ def build_tax_reconciliation_frame(
     rec["ETFs Realised P/L (EUR)"] = etf_pl.reindex(year_index, fill_value=0.0).values
     rec["ETFs Taxable Gain (EUR)"] = etf_taxable.reindex(year_index, fill_value=0.0).values
     rec[f"Tax @ ETFs {int(exit_tax_rate_etf * 100)}% (EUR)"] = etf_tax.reindex(year_index, fill_value=0.0).values
+    if dirt_tax_col:
+        rec[dirt_tax_col] = dirt_tax.reindex(year_index, fill_value=0.0).values
+    else:
+        rec["Tax @ DIRT (EUR)"] = 0.0
     rec["Tax @ Combined (recomputed) (EUR)"] = (
-        rec[f"Tax @ Shares {int(cgt_rate_shares * 100)}% (EUR)"] + rec[f"Tax @ ETFs {int(exit_tax_rate_etf * 100)}% (EUR)"]
+        rec[f"Tax @ Shares {int(cgt_rate_shares * 100)}% (EUR)"]
+        + rec[f"Tax @ ETFs {int(exit_tax_rate_etf * 100)}% (EUR)"]
+        + rec[dirt_tax_col if dirt_tax_col else "Tax @ DIRT (EUR)"]
     )
     rec["Tax @ Combined (reported) (EUR)"] = combined_tax_reported.reindex(year_index, fill_value=0.0).values
     rec["Delta (Reported - Recomputed) (EUR)"] = rec["Tax @ Combined (reported) (EUR)"] - rec["Tax @ Combined (recomputed) (EUR)"]

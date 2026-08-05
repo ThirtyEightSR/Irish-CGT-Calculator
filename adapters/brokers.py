@@ -106,6 +106,11 @@ def detect_broker_from_headers(df_head: pd.DataFrame) -> str:
     if len(t212_signals & cols) >= 3:
         return "TRADING212"
 
+    revolut_signals = {"date", "type", "ticker", "isin"}
+    revolut_value_signals = {"quantity", "units", "price", "amount", "total"}
+    if revolut_signals <= cols and len(revolut_value_signals & cols) >= 1:
+        return "REVOLUT"
+
     return "DEGIRO"
 
 
@@ -366,4 +371,183 @@ def parse_trading212_csv(df_raw: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
-BROKER_ADAPTERS: Dict[str, BrokerAdapter] = {"DEGIRO": parse_degiros_csv, "TRADING212": parse_trading212_csv}
+def parse_revolut_csv(df_raw: pd.DataFrame) -> pd.DataFrame:
+    df = df_raw.copy()
+
+    def _num(x):
+        s = pd.Series([x]).astype(str)
+        s = s.str.replace(r"[\s€$£]", "", regex=True)
+        # Handle negative values represented as parentheses.
+        s = s.str.replace(r"^\((.*)\)$", r"-\1", regex=True)
+        # Normalize thousands/decimal separators conservatively.
+        s = s.str.replace(",", "", regex=False)
+        return pd.to_numeric(s, errors="coerce").iloc[0]
+
+    def col(name: str, alts: list[str] = []):
+        for c in [name] + alts:
+            if c in df.columns:
+                return c
+        lower_map = {str(c).lower(): c for c in df.columns}
+        for c in [name] + alts:
+            if c.lower() in lower_map:
+                return lower_map[c.lower()]
+        for w in [name] + alts:
+            for colname in df.columns:
+                if str(colname).lower().startswith(w.lower()):
+                    return colname
+        return None
+
+    c_date = col("Date", alts=["Created at", "Timestamp"])
+    c_time = col("Time")
+    c_type = col("Type", alts=["Transaction Type", "Action", "Side"])
+    c_state = col("State", alts=["Status"])
+    c_isin = col("ISIN")
+    c_ticker = col("Ticker", alts=["Symbol"])
+    c_name = col("Instrument", alts=["Name", "Product"])
+    c_qty = col("Quantity", alts=["Units", "No. of shares"])
+    c_px = col("Price", alts=["Price per share", "Price / share"])
+    c_ccy = col("Currency", alts=["Instrument currency", "Price currency"])
+    c_total = col("Amount", alts=["Total", "Cash amount", "Net amount"])
+    c_fee = col("Fee", alts=["Commission", "Broker fee"])
+    c_tax = col("Withholding tax", alts=["Tax", "Dividend tax"])
+    c_id = col("Order ID", alts=["ID", "OrderId", "Transaction ID", "Reference"])
+
+    rows = []
+    for _, r in df.iterrows():
+        action = str(r.get(c_type, "")).strip().lower()
+        state = str(r.get(c_state, "")).strip().lower()
+        if state in {"cancelled", "canceled", "rejected", "failed"}:
+            continue
+
+        dt_raw = r.get(c_date, None)
+        dt = pd.to_datetime(dt_raw, errors="coerce", utc=False)
+        time_s = str(r.get(c_time, "")).strip() if c_time else ""
+
+        isin = str(r.get(c_isin, "")).strip()
+        ticker = str(r.get(c_ticker, "")).strip()
+        name = str(r.get(c_name, "")).strip()
+        product = name if name else (ticker if ticker else isin)
+
+        qty = _num(r.get(c_qty))
+        px = _num(r.get(c_px))
+        total = _num(r.get(c_total))
+        fee = _num(r.get(c_fee))
+        tax = _num(r.get(c_tax))
+
+        ccy = str(r.get(c_ccy, "")).strip().upper() if c_ccy else ""
+        if ccy in {"", "NAN", "NONE"}:
+            ccy = "EUR"
+        fx_field = "EUR" if ccy == "EUR" else ccy
+
+        oid = str(r.get(c_id, "")).strip() if c_id else ""
+        if not oid:
+            stamp = dt.strftime("%Y%m%d") if pd.notna(dt) else "NA"
+            oid = f"REV-{isin or ticker or 'UNK'}-{stamp}"
+
+        if pd.isna(total) and pd.notna(qty) and pd.notna(px):
+            total = float(qty) * float(px)
+
+        if "buy" in action:
+            desc = f"Buy {qty:g} {product}@{px:g} {ccy}" if pd.notna(qty) and pd.notna(px) else "Buy"
+            change = -abs(float(total)) if pd.notna(total) else None
+            cash = change
+        elif "sell" in action:
+            desc = f"Sell {qty:g} {product}@{px:g} {ccy}" if pd.notna(qty) and pd.notna(px) else "Sell"
+            change = abs(float(total)) if pd.notna(total) else None
+            cash = change
+        elif "dividend" in action:
+            desc = "Dividend"
+            gross = float(total) if pd.notna(total) else 0.0
+            if pd.notna(tax) and abs(float(tax)) > 0:
+                gross += abs(float(tax))
+            change = gross
+            cash = float(total) if pd.notna(total) else None
+            if pd.notna(tax) and abs(float(tax)) > 0:
+                rows.append(
+                    {
+                        "Date": dt,
+                        "Time": time_s,
+                        "Value date": None,
+                        "Product": product,
+                        "ISIN": isin,
+                        "Description": "Dividend Tax",
+                        "FX": fx_field,
+                        "Change": abs(float(tax)),
+                        "Cash Movements": None,
+                        "Balance": None,
+                        "Order ID": f"TAX-{oid}",
+                        "Currency": ccy,
+                    }
+                )
+        elif "interest" in action:
+            desc = "Interest"
+            change = float(total) if pd.notna(total) else None
+            cash = change
+        elif "fee" in action or "commission" in action:
+            desc = "Fee"
+            change = -abs(float(total)) if pd.notna(total) else (-abs(float(fee)) if pd.notna(fee) else None)
+            cash = change
+        else:
+            continue
+
+        if pd.notna(fee) and abs(float(fee)) > 0 and ("buy" in action or "sell" in action):
+            rows.append(
+                {
+                    "Date": dt,
+                    "Time": time_s,
+                    "Value date": None,
+                    "Product": product,
+                    "ISIN": isin,
+                    "Description": "Fee: Broker commission",
+                    "FX": fx_field,
+                    "Change": -abs(float(fee)),
+                    "Cash Movements": -abs(float(fee)),
+                    "Balance": None,
+                    "Order ID": f"FEE-{oid}",
+                    "Currency": ccy,
+                }
+            )
+
+        rows.append(
+            {
+                "Date": dt,
+                "Time": time_s,
+                "Value date": None,
+                "Product": product,
+                "ISIN": isin,
+                "Description": desc,
+                "FX": fx_field,
+                "Change": change,
+                "Cash Movements": cash,
+                "Balance": None,
+                "Order ID": oid,
+                "Currency": ccy,
+            }
+        )
+
+    out = pd.DataFrame(
+        rows,
+        columns=[
+            "Date",
+            "Time",
+            "Value date",
+            "Product",
+            "ISIN",
+            "Description",
+            "FX",
+            "Change",
+            "Cash Movements",
+            "Balance",
+            "Order ID",
+            "Currency",
+        ],
+    )
+    out["Date"] = pd.to_datetime(out["Date"], errors="coerce", dayfirst=False)
+    return out
+
+
+BROKER_ADAPTERS: Dict[str, BrokerAdapter] = {
+    "DEGIRO": parse_degiros_csv,
+    "TRADING212": parse_trading212_csv,
+    "REVOLUT": parse_revolut_csv,
+}

@@ -11,7 +11,7 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
-from core.settings import DEFAULT_CGT_EXEMPTION_EUR, DEFAULT_CGT_RATE_SHARES, DEFAULT_EXIT_TAX_RATE_ETF
+from core.settings import DEFAULT_CGT_EXEMPTION_EUR, DEFAULT_CGT_RATE_SHARES, DEFAULT_DIRT_RATE_DEPOSIT, DEFAULT_EXIT_TAX_RATE_ETF
 
 
 @dataclass
@@ -43,6 +43,7 @@ class TaxSettingsState:
     exemption_val: float
     cgt_rate_shares: float
     exit_tax_rate_etf: float
+    dirt_rate_deposit: float
 
 
 @dataclass
@@ -677,6 +678,76 @@ def render_main_sidebar() -> SidebarState:
                     st.session_state.manual_transactions = []
                     st.rerun()
 
+            st.markdown("---")
+            st.markdown("**RSU / ESPP guided entry**")
+            st.caption(
+                "Use this for vest/purchase events. Entries are treated as Buy lots for cost-basis tracking. "
+                "Cash payroll withholding is not modeled separately."
+            )
+
+            rsu_col1, rsu_col2 = st.columns(2)
+            with rsu_col1:
+                equity_event = st.selectbox(
+                    "Equity event",
+                    options=["RSU Vest", "ESPP Purchase"],
+                    index=0,
+                    key="equity_event_kind",
+                )
+                equity_date = st.date_input("Event date", value=datetime.today(), key="equity_event_date")
+                equity_isin = st.text_input("ISIN (RSU/ESPP)", placeholder="e.g., US0378331005", key="equity_event_isin").strip().upper()
+            with rsu_col2:
+                equity_product = st.text_input(
+                    "Product / Company",
+                    placeholder="e.g., Apple Inc",
+                    key="equity_event_product",
+                )
+                equity_qty = st.number_input(
+                    "Units vested/purchased",
+                    min_value=0.0,
+                    step=0.01,
+                    format="%.6f",
+                    key="equity_event_qty",
+                )
+                equity_unit = st.number_input(
+                    "Cost basis per unit (EUR)",
+                    min_value=0.0,
+                    step=0.01,
+                    format="%.4f",
+                    key="equity_event_unit",
+                )
+
+            equity_fee = st.number_input(
+                "Broker fees (EUR)",
+                min_value=0.0,
+                step=0.01,
+                value=0.0,
+                format="%.2f",
+                key="equity_event_fee",
+            )
+
+            if st.button("➕ Add RSU/ESPP Entry", use_container_width=True):
+                if not equity_isin:
+                    st.error("❌ ISIN is required")
+                elif equity_qty <= 0:
+                    st.error("❌ Units must be > 0")
+                elif equity_unit <= 0:
+                    st.error("❌ Cost basis per unit must be > 0")
+                else:
+                    total_eur = equity_qty * equity_unit + equity_fee
+                    trans = {
+                        "Date": equity_date,
+                        "Type": "Buy",
+                        "ISIN": equity_isin,
+                        "Product": equity_product or equity_isin,
+                        "Quantity": equity_qty,
+                        "Unit_Price_EUR": equity_unit,
+                        "Fees": equity_fee,
+                        "Total_EUR": total_eur,
+                        "Manual_Label": equity_event,
+                    }
+                    st.session_state.manual_transactions.append(trans)
+                    st.success(f"✅ Added {equity_event} entry for {equity_isin}")
+
     return SidebarState(
         uploads=uploads,
         opening_lots_df=opening_lots_df,
@@ -708,6 +779,8 @@ def render_tier_and_settings_menu() -> tuple[TierState, DisplaySettingsState, Ta
         st.session_state.cgt_rate_shares = float(DEFAULT_CGT_RATE_SHARES)
     if "exit_tax_rate_etf" not in st.session_state:
         st.session_state.exit_tax_rate_etf = float(DEFAULT_EXIT_TAX_RATE_ETF)
+    if "dirt_rate_deposit" not in st.session_state:
+        st.session_state.dirt_rate_deposit = float(DEFAULT_DIRT_RATE_DEPOSIT)
 
     if "div_tax_income_pct" not in st.session_state:
         st.session_state.div_tax_income_pct = 40.0
@@ -759,6 +832,13 @@ def render_tier_and_settings_menu() -> tuple[TierState, DisplaySettingsState, Ta
                 min_value=0.0,
                 max_value=1.0,
                 value=float(st.session_state.exit_tax_rate_etf),
+                step=0.01,
+            )
+            st.session_state.dirt_rate_deposit = st.number_input(
+                "DIRT rate (deposit interest)",
+                min_value=0.0,
+                max_value=1.0,
+                value=float(st.session_state.dirt_rate_deposit),
                 step=0.01,
             )
 
@@ -818,6 +898,7 @@ def render_tier_and_settings_menu() -> tuple[TierState, DisplaySettingsState, Ta
         exemption_val=float(st.session_state.exemption_val),
         cgt_rate_shares=float(st.session_state.cgt_rate_shares),
         exit_tax_rate_etf=float(st.session_state.exit_tax_rate_etf),
+        dirt_rate_deposit=float(st.session_state.dirt_rate_deposit),
     )
     div_state = DividendTaxState(
         tax_bracket=float(st.session_state.div_tax_income_pct),

@@ -14,6 +14,7 @@ def _manual_transactions_to_canonical(manual_list: list) -> pd.DataFrame:
     for i, trans in enumerate(manual_list):
         date_val = pd.to_datetime(trans["Date"])
         trans_type = trans["Type"]
+        manual_label = str(trans.get("Manual_Label") or "").strip()
         isin = str(trans["ISIN"]).strip()
         product = str(trans["Product"]).strip() or isin
         qty = float(trans["Quantity"])
@@ -21,6 +22,8 @@ def _manual_transactions_to_canonical(manual_list: list) -> pd.DataFrame:
         total_eur = float(trans["Total_EUR"])
 
         desc = f"{trans_type} {qty:g} {product}@{unit_price_eur:g} EUR"
+        if manual_label:
+            desc = f"{desc} [{manual_label}]"
         change = -total_eur if trans_type == "Buy" else total_eur
         cash_movements = -total_eur if trans_type == "Buy" else total_eur
 
